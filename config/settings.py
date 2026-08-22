@@ -33,6 +33,7 @@ class TTSConfig(BaseModel):
     engine: Literal["pyttsx3", "gTTS"] = Field(default="pyttsx3", description="TTS engine")
     rate: int = Field(default=180, gt=0, description="Speech rate (words per minute)")
     volume: float = Field(default=0.9, ge=0.0, le=1.0, description="Volume level")
+    language: str = Field(default="en", description="Language code for gTTS")
 
 
 class NLPConfig(BaseModel):
