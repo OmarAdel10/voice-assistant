@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        args: [--check]
+      - id: ruff
+        name: ruff check
+        args: [--fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        name: mypy core
+        args: [core/, --ignore-missing-imports]
+        additional_dependencies:
+          - types-PyYAML
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest tests
+        entry: pytest tests/ -v --cov=core --cov-fail-under=80
+        language: system
+        types: [python]
+        require_serial: true
