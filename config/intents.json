@@ -1,0 +1,65 @@
+{
+  "intents": [
+    {
+      "name": "get_time",
+      "patterns": [
+        "what time is it",
+        "current time",
+        "tell me the time",
+        "time please",
+        "what's the time"
+      ],
+      "entities": [],
+      "response_template": "It is {time}."
+    },
+    {
+      "name": "get_date",
+      "patterns": [
+        "what date is it",
+        "today's date",
+        "what day is it",
+        "what is today",
+        "current date"
+      ],
+      "entities": [],
+      "response_template": "Today is {date}."
+    },
+    {
+      "name": "get_sys_info",
+      "patterns": [
+        "system info",
+        "system status",
+        "cpu usage",
+        "memory usage",
+        "disk space",
+        "system resources",
+        "hardware info"
+      ],
+      "entities": [],
+      "response_template": "CPU: {cpu}% | Memory: {memory}% | Disk: {disk}%"
+    },
+    {
+      "name": "open_app",
+      "patterns": [
+        "open {app}",
+        "launch {app}",
+        "start {app}",
+        "run {app}"
+      ],
+      "entities": ["app"],
+      "response_template": "Opening {app}."
+    },
+    {
+      "name": "web_search",
+      "patterns": [
+        "search for {query}",
+        "google {query}",
+        "look up {query}",
+        "find {query}",
+        "search {query}"
+      ],
+      "entities": ["query"],
+      "response_template": "Searching for {query}."
+    }
+  ]
+}
