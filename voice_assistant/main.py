@@ -67,6 +67,14 @@ class VoiceAssistant:
             )
         return self._tts_engine
 
+    def _safe_say(self, text: str) -> None:
+        """Safely speak text, suppressing any TTS errors."""
+        try:
+            self.tts_engine.say(text)
+        except Exception as e:
+            logger.error(f"TTS fallback failed: {e}")
+            logger.error(f"[TTS Error] {e}")
+
     def process_text(self, text: str) -> str:
         """Process text input through NLP and execute action.
 
@@ -134,13 +142,13 @@ class VoiceAssistant:
 
         except STTError as e:
             logger.error(f"STT error: {e}")
-            self.tts_engine.say("Could not understand audio. Please try again.")
+            self._safe_say("Could not understand audio. Please try again.")
         except TTSError as e:
             logger.error(f"TTS error: {e}")
             logger.error(f"[TTS Error] {e}")
         except Exception as e:
             logger.exception(f"Unexpected error in voice interaction: {e}")
-            self.tts_engine.say("An error occurred. Please try again.")
+            self._safe_say("An error occurred. Please try again.")
 
     def run_once_text(self, text: str) -> None:
         """Single text interaction: process -> speak."""
