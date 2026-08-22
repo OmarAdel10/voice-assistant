@@ -58,4 +58,4 @@ ignore_errors = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "config*"]
+include = ["core*", "config*", "voice_assistant*"]
