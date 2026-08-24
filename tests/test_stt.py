@@ -28,11 +28,11 @@ class TestSTTEngine:
             engine = STTEngine()
             engine.load_model()
 
+            # Engine checks for local path first, then falls back to download_root
             mock_model_class.assert_called_once_with(
-                "large-v3",
+                "models/stt/large-v3",
                 device="cuda",
                 compute_type="float16",
-                download_root="models/stt",
             )
             assert engine._model is mock_model
 

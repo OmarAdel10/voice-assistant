@@ -16,7 +16,12 @@ class TestTTSEngineInit:
         assert engine._rate == 180
         assert engine._volume == 0.9
         assert engine._engine_preference == "piper"
-        assert engine._piper_voices == {"ar": "ar_EG-medium", "en": "en_US-medium"}
+        assert engine._piper_voices == {
+            "ar": "ar_JO-kareem-medium",
+            "en": "en_US-lessac-medium",
+            "ar_fallback": "ar_JO-kareem-low",
+            "en_fallback": "en_US-lessac-low",
+        }
 
     def test_init_custom_settings(self):
         """Engine should accept custom settings."""
@@ -27,12 +32,19 @@ class TestTTSEngineInit:
             piper_voice_dir="/custom/tts",
             piper_voice_ar="ar_EG-custom",
             piper_voice_en="en_US-custom",
+            piper_voice_ar_fallback="ar_EG-custom-fallback",
+            piper_voice_en_fallback="en_US-custom-fallback",
         )
         assert engine._rate == 200
         assert engine._volume == 0.8
         assert engine._engine_preference == "pyttsx3"
         assert str(engine._piper_voice_dir) == "/custom/tts"
-        assert engine._piper_voices == {"ar": "ar_EG-custom", "en": "en_US-custom"}
+        assert engine._piper_voices == {
+            "ar": "ar_EG-custom",
+            "en": "en_US-custom",
+            "ar_fallback": "ar_EG-custom-fallback",
+            "en_fallback": "en_US-custom-fallback",
+        }
 
 
 class TestTTSEnginePiper:
@@ -105,12 +117,13 @@ class TestTTSEnginePyttsx3:
 
         mock_engine.setProperty.assert_any_call("voice", "english")
 
-    @patch("pyttsx3.init")
+    @patch("core.tts_engine.PiperVoice", side_effect=FileNotFoundError("piper failed"))
+    @patch("pyttsx3.init", side_effect=RuntimeError("No TTS engine"))
     @patch.object(TTSEngine, "_say_fallback")
-    def test_say_pyttsx3_failure_falls_back(self, mock_say_fallback, mock_pyttsx3_init):
-        """pyttsx3 failure should fall back to print."""
-        mock_pyttsx3_init.side_effect = RuntimeError("No TTS engine")
-
+    def test_say_pyttsx3_failure_falls_back(
+        self, mock_say_fallback, mock_pyttsx3_init, mock_piper_voice
+    ):
+        """pyttsx3 failure should fall back to piper, then print."""
         engine = TTSEngine(engine="pyttsx3")
         engine.say("Hello", lang="en")
 

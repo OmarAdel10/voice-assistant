@@ -44,8 +44,14 @@ class TTSConfig(BaseModel):
     volume: float = Field(default=0.9, ge=0.0, le=1.0, description="Volume level")
     voice_id: str | None = Field(default=None, description="Voice ID for pyttsx3")
     piper_voice_dir: str = Field(default="models/tts", description="Local piper voices directory")
-    piper_voice_ar: str = Field(default="ar_EG-medium", description="Arabic piper voice")
-    piper_voice_en: str = Field(default="en_US-medium", description="English piper voice")
+    piper_voice_ar: str = Field(default="ar_JO-kareem-medium", description="Arabic piper voice")
+    piper_voice_en: str = Field(default="en_US-lessac-medium", description="English piper voice")
+    piper_voice_ar_fallback: str = Field(
+        default="ar_JO-kareem-low", description="Arabic piper voice fallback"
+    )
+    piper_voice_en_fallback: str = Field(
+        default="en_US-lessac-low", description="English piper voice fallback"
+    )
 
 
 class NLPConfig(BaseModel):

@@ -82,7 +82,7 @@ class VoiceAssistant:
             logger.error(f"TTS fallback failed: {e}")
             logger.error(f"[TTS Error] {e}")
 
-    def process_text(self, text: str, lang: str | None = None) -> str:
+    def process_text(self, text: str, lang: str | None = None) -> tuple[str, str]:
         """Process text input through NLP and execute action.
 
         Args:
@@ -90,7 +90,7 @@ class VoiceAssistant:
             lang: Detected language from STT (optional)
 
         Returns:
-            Response text to speak
+            Tuple of (response text, detected language)
         """
         try:
             intent, entities, confidence = self.nlp_engine.parse(text, stt_language=lang)
@@ -98,34 +98,37 @@ class VoiceAssistant:
             if intent == "unknown" or confidence < self.settings.nlp.confidence_threshold:
                 # Return localized "didn't understand" message
                 template = self.nlp_engine.get_response_template("unknown", lang or "en")
-                return template.format(text=text)
+                return template.format(text=text), lang or "en"
 
             logger.info(f"Intent: {intent} | Entities: {entities} | Confidence: {confidence:.2f}")
 
+            # Detect language from NLP engine
+            detected_lang = self.nlp_engine._detect_language(text, lang)
+
             # Execute action based on intent
             if intent == "get_time":
-                return get_time()
+                return get_time(), detected_lang
             elif intent == "get_date":
-                return get_date()
+                return get_date(), detected_lang
             elif intent == "get_sys_info":
                 info = get_sysinfo()
                 cpu = info["cpu_percent"]
                 mem = info["memory_percent"]
                 disk = info["disk_percent"]
-                return f"CPU: {cpu:.1f}% | Memory: {mem:.1f}% | Disk: {disk:.1f}%"
+                return f"CPU: {cpu:.1f}% | Memory: {mem:.1f}% | Disk: {disk:.1f}%", detected_lang
             elif intent == "open_app":
-                return open_app(entities["app"])
+                return open_app(entities["app"]), detected_lang
             elif intent == "web_search":
-                return web_search(entities["query"])
+                return web_search(entities["query"]), detected_lang
             else:
-                return f"Unknown intent: {intent}"
+                return f"Unknown intent: {intent}", detected_lang
 
         except (NLPError, ActionError) as e:
             logger.error(f"Processing failed: {e}")
-            return f"Error: {e}"
+            return f"Error: {e}", lang or "en"
         except Exception as e:
             logger.exception(f"Unexpected error: {e}")
-            return "An unexpected error occurred"
+            return "An unexpected error occurred", lang or "en"
 
     def run_once_voice(self) -> None:
         """Single voice interaction: listen -> transcribe -> process -> speak."""
@@ -142,10 +145,10 @@ class VoiceAssistant:
 
             logger.info(f"Transcribed: {text} | Language: {stt_lang}")
 
-            response = self.process_text(text, lang=stt_lang)
+            response, response_lang = self.process_text(text, lang=stt_lang)
 
             logger.info(f"Response: {response}")
-            self.tts_engine.say(response, lang=stt_lang)
+            self.tts_engine.say(response, lang=response_lang)
 
         except STTError as e:
             logger.error(f"STT error: {e}")
@@ -160,9 +163,9 @@ class VoiceAssistant:
     def run_once_text(self, text: str) -> None:
         """Single text interaction: process -> speak."""
         try:
-            response = self.process_text(text)
+            response, response_lang = self.process_text(text)
             logger.info(f"Response: {response}")
-            self.tts_engine.say(response)
+            self.tts_engine.say(response, lang=response_lang)
         except TTSError as e:
             logger.error(f"TTS error: {e}")
             logger.error(f"[TTS Error] {e}")

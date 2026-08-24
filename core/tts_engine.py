@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class TTSEngine:
-    """Text-to-Speech engine with fallback chain: piper -> pyttsx3 -> print."""
+    """Text-to-Speech engine with fallback chain: piper -> piper(fallback) -> pyttsx3 -> print."""
 
     def __init__(
         self,
@@ -27,8 +27,10 @@ class TTSEngine:
         engine: Literal["piper", "pyttsx3"] = "piper",
         voice_id: str | None = None,
         piper_voice_dir: str = "models/tts",
-        piper_voice_ar: str = "ar_EG-medium",
-        piper_voice_en: str = "en_US-medium",
+        piper_voice_ar: str = "ar_JO-kareem-medium",
+        piper_voice_en: str = "en_US-lessac-medium",
+        piper_voice_ar_fallback: str = "ar_JO-kareem-low",
+        piper_voice_en_fallback: str = "en_US-lessac-low",
     ) -> None:
         """Initialize TTS engine.
 
@@ -40,13 +42,20 @@ class TTSEngine:
             piper_voice_dir: Directory containing piper voices
             piper_voice_ar: Arabic piper voice name
             piper_voice_en: English piper voice name
+            piper_voice_ar_fallback: Arabic piper fallback voice name
+            piper_voice_en_fallback: English piper fallback voice name
         """
         self._rate = rate
         self._volume = volume
         self._engine_preference = engine
         self._voice_id = voice_id
         self._piper_voice_dir = Path(piper_voice_dir)
-        self._piper_voices = {"ar": piper_voice_ar, "en": piper_voice_en}
+        self._piper_voices = {
+            "ar": piper_voice_ar,
+            "en": piper_voice_en,
+            "ar_fallback": piper_voice_ar_fallback,
+            "en_fallback": piper_voice_en_fallback,
+        }
 
     def say(self, text: str, lang: str = "auto") -> None:
         """Speak text using fallback chain.
@@ -88,29 +97,44 @@ class TTSEngine:
         return "en"
 
     def _say_piper(self, text: str, lang: str) -> None:
-        """Speak using piper-tts (offline, natural)."""
-        voice_name = self._piper_voices.get(lang, self._piper_voices["en"])
-        voice_path = self._piper_voice_dir / voice_name / f"{voice_name}.onnx"
+        """Speak using piper-tts (offline, natural) with fallback voice support."""
+        # Try primary voice first
+        primary_voice = self._piper_voices.get(lang, self._piper_voices["en"])
+        fallback_voice = self._piper_voices.get(
+            f"{lang}_fallback", self._piper_voices.get("en_fallback")
+        )
 
-        if not voice_path.exists():
-            raise FileNotFoundError(f"Piper voice not found: {voice_path}")
+        for voice_name in (primary_voice, fallback_voice):
+            if not voice_name:
+                continue
+            voice_path = self._piper_voice_dir / voice_name / f"{voice_name}.onnx"
+            if not voice_path.exists():
+                logger.warning(f"Piper voice not found: {voice_path}, trying fallback")
+                continue
 
-        logger.info(f"Using piper voice: {voice_name} for lang: {lang}")
-        voice = PiperVoice.load(str(voice_path))
+            try:
+                logger.info(f"Using piper voice: {voice_name} for lang: {lang}")
+                voice = PiperVoice.load(str(voice_path))
 
-        # Synthesize audio
-        audio_chunks = []
-        for chunk in voice.synthesize(text):
-            audio_chunks.append(chunk.audio_int16_bytes)
+                # Synthesize audio
+                audio_chunks = []
+                for chunk in voice.synthesize(text):
+                    audio_chunks.append(chunk.audio_int16_bytes)
 
-        # Combine and play
-        audio_data = b"".join(audio_chunks)
-        # Convert int16 bytes to float32 for sounddevice
-        audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+                # Combine and play
+                audio_data = b"".join(audio_chunks)
+                audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
 
-        # Play via sounddevice
-        sd.play(audio_array, samplerate=voice.config.sample_rate)
-        sd.wait()
+                sd.play(audio_array, samplerate=voice.config.sample_rate)
+                sd.wait()
+                return  # Success
+
+            except Exception as e:
+                logger.warning(f"Piper voice {voice_name} failed: {e}, trying fallback")
+                continue
+
+        # If both primary and fallback failed, raise to trigger engine fallback
+        raise RuntimeError("All piper voices failed")
 
     def _say_pyttsx3(self, text: str) -> None:
         """Speak using pyttsx3 (offline)."""
@@ -133,13 +157,11 @@ class TTSEngine:
         lang = self._detect_language(text)
         tts = gTTS(text=text, lang=lang, slow=False)
 
-        # Write to temp file and try to play with available system player
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fp:
             tts.write_to_fp(fp)
             temp_path = fp.name
 
         try:
-            # Try common Linux audio players in order
             players = [
                 ["mpv", "--no-video", "--really-quiet"],
                 ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],
@@ -162,7 +184,6 @@ class TTSEngine:
                 raise RuntimeError("No audio player available")
 
         finally:
-            # Clean up temp file
             try:
                 import os
 
