@@ -21,3 +21,11 @@ class TTSError(VoiceAssistantError):
 
 class ActionError(VoiceAssistantError):
     """Action execution errors."""
+
+
+class AppNotFoundError(ActionError):
+    """Application not found in system."""
+
+
+class InstallError(ActionError):
+    """Package installation errors."""
