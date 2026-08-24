@@ -1,0 +1,33 @@
+# Voice Assistant Configuration
+
+stt:
+  model_size: "large-v3"
+  device: "cuda"
+  compute_type: "int8"
+  max_listen_seconds: 5
+  language: "ar"
+  vad_threshold: 0.5
+  model_dir: "models/stt"
+  vad_filter: true
+  vad_min_silence_ms: 500
+
+tts:
+  engine: "piper"
+  rate: 180
+  volume: 0.9
+  voice_id: null
+  piper_voice_dir: "models/tts"
+  piper_voice_ar: "ar_JO-kareem-medium"
+  piper_voice_en: "en_US-lessac-medium"
+  piper_voice_ar_fallback: "ar_JO-kareem-low"
+  piper_voice_en_fallback: "en_US-lessac-low"
+
+nlp:
+  confidence_threshold: 0.6
+
+audio:
+  sample_rate: 16000
+  channels: 1
+
+log:
+  level: "INFO"
