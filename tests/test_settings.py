@@ -164,10 +164,15 @@ class TestIntentsRegistry:
 
         for intent in data["intents"]:
             assert "name" in intent
-            assert "patterns" in intent
+            assert "patterns_en" in intent
+            assert "patterns_ar" in intent
             assert "entities" in intent
-            assert "response_template" in intent
-            assert isinstance(intent["patterns"], list)
-            assert len(intent["patterns"]) > 0
+            assert "response_template_en" in intent
+            assert "response_template_ar" in intent
+            assert isinstance(intent["patterns_en"], list)
+            assert len(intent["patterns_en"]) > 0
+            assert isinstance(intent["patterns_ar"], list)
+            assert len(intent["patterns_ar"]) > 0
             assert isinstance(intent["entities"], list)
-            assert isinstance(intent["response_template"], str)
+            assert isinstance(intent["response_template_en"], str)
+            assert isinstance(intent["response_template_ar"], str)

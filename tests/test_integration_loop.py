@@ -229,6 +229,10 @@ class TestErrorRecovery:
 
         mock_nlp = Mock()
         mock_nlp.parse.return_value = ("unknown", {}, 0.0)
+        mock_nlp.get_response_template.return_value = (
+            "I didn't understand that command. Try asking for time, date, "
+            "system info, opening an app, or searching the web."
+        )
         mock_nlp_class.return_value = mock_nlp
 
         mock_tts = Mock()

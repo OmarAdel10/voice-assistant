@@ -78,6 +78,10 @@ module = "piper"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "langdetect"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "sounddevice"
 ignore_missing_imports = true
 

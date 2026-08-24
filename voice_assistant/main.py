@@ -96,10 +96,9 @@ class VoiceAssistant:
             intent, entities, confidence = self.nlp_engine.parse(text, stt_language=lang)
 
             if intent == "unknown" or confidence < self.settings.nlp.confidence_threshold:
-                return (
-                    "I didn't understand that command. Try asking for time, date, "
-                    "system info, opening an app, or searching the web."
-                )
+                # Return localized "didn't understand" message
+                template = self.nlp_engine.get_response_template("unknown", lang or "en")
+                return template.format(text=text)
 
             logger.info(f"Intent: {intent} | Entities: {entities} | Confidence: {confidence:.2f}")
 
@@ -242,7 +241,7 @@ def cli(mode: str, text_input: str | None, list_intents: bool, version: bool) ->
     if list_intents:
         nlp = NLPEngine()
         click.echo("Available intents:")
-        for intent in nlp._intents:
+        for intent in nlp.patterns:
             name = intent["name"]
             patterns = ", ".join(f'"{p}"' for p in intent["patterns"][:3])
             if len(intent["patterns"]) > 3:
