@@ -22,10 +22,12 @@ class TestSettings:
             settings = Settings.load(config_path)
 
             # Check defaults from DESIGN.md
-            assert settings.stt.model_size == "tiny.en"
+            assert settings.stt.model_size == "large-v3"
             assert settings.stt.language == "en"
+            assert settings.stt.device == "cuda"
+            assert settings.stt.compute_type == "float16"
             assert settings.stt.vad_threshold == 0.5
-            assert settings.stt.max_listen_seconds == 10
+            assert settings.stt.max_listen_seconds == 5
             assert settings.tts.engine == "pyttsx3"
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9
@@ -116,7 +118,7 @@ class TestSettings:
     def test_missing_file_returns_defaults(self):
         """Non-existent config file should return defaults, not raise."""
         settings = Settings.load(Path("/nonexistent/path/config.yaml"))
-        assert settings.stt.model_size == "tiny.en"
+        assert settings.stt.model_size == "large-v3"
 
     def test_settings_are_immutable(self):
         """Settings should be frozen/immutable after creation."""

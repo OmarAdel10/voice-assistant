@@ -131,7 +131,11 @@ class STTEngine:
 
             # At this point model is guaranteed to be loaded
             assert self._model is not None
-            segments, info = self._model.transcribe(audio)
+            segments, info = self._model.transcribe(
+                audio,
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 500},
+            )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             lang = info.language

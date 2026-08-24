@@ -17,16 +17,16 @@ class STTConfig(BaseModel):
 
     model_config = {"frozen": True}
 
-    model_size: str = Field(default="tiny.en", description="Whisper model size")
+    model_size: str = Field(default="large-v3", description="Whisper model size")
     language: str = Field(default="en", description="Language code")
-    device: str = Field(default="cpu", description="Device to run on (cpu, cuda)")
+device: str = Field(default="cuda", description="Device to run on (cpu, cuda)")
     compute_type: str = Field(
-        default="int8", description="Quantization type (int8, float16, float32)"
+        default="float16", description="Quantization type (int8, float16, float32)"
     )
     vad_threshold: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Voice activity detection threshold"
     )
-    max_listen_seconds: int = Field(default=10, gt=0, description="Maximum recording duration")
+    max_listen_seconds: int = Field(default=5, gt=0, description="Maximum recording duration")
 
 
 class TTSConfig(BaseModel):
