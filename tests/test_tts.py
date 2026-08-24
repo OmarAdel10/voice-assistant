@@ -15,18 +15,69 @@ class TestTTSEngineInit:
         engine = TTSEngine()
         assert engine._rate == 180
         assert engine._volume == 0.9
-        assert engine._engine_preference == "pyttsx3"
+        assert engine._engine_preference == "piper"
+        assert engine._piper_voices == {"ar": "ar_EG-medium", "en": "en_US-medium"}
 
     def test_init_custom_settings(self):
         """Engine should accept custom settings."""
-        engine = TTSEngine(rate=200, volume=0.8, engine="gTTS")
+        engine = TTSEngine(
+            rate=200,
+            volume=0.8,
+            engine="pyttsx3",
+            piper_voice_dir="/custom/tts",
+            piper_voice_ar="ar_EG-custom",
+            piper_voice_en="en_US-custom",
+        )
         assert engine._rate == 200
         assert engine._volume == 0.8
-        assert engine._engine_preference == "gTTS"
+        assert engine._engine_preference == "pyttsx3"
+        assert str(engine._piper_voice_dir) == "/custom/tts"
+        assert engine._piper_voices == {"ar": "ar_EG-custom", "en": "en_US-custom"}
+
+
+class TestTTSEnginePiper:
+    """Test piper engine path (primary)."""
+
+    @patch("core.tts_engine.PiperVoice")
+    @patch("core.tts_engine.sd")
+    @patch("core.tts_engine.np")
+    @patch("core.tts_engine.Path.exists", return_value=True)
+    def test_say_piper_success(self, mock_exists, mock_np, mock_sd, mock_piper_voice):
+        """piper success should synthesize and play."""
+        mock_voice = Mock()
+        mock_voice.config.sample_rate = 22050
+        mock_voice.synthesize.return_value = [
+            Mock(audio_int16_bytes=b"\x00\x01" * 1000),
+        ]
+        mock_piper_voice.load.return_value = mock_voice
+
+        mock_audio_array = Mock()
+        mock_np.frombuffer.return_value = mock_audio_array
+        mock_np.int16 = "int16"
+        mock_np.float32 = "float32"
+        mock_audio_array.astype.return_value = mock_audio_array
+        mock_audio_array.__truediv__ = Mock(return_value=mock_audio_array)
+
+        engine = TTSEngine(engine="piper")
+        engine.say("Hello world", lang="en")
+
+        mock_piper_voice.load.assert_called_once()
+        mock_voice.synthesize.assert_called_once_with("Hello world")
+        mock_sd.play.assert_called_once()
+        mock_sd.wait.assert_called_once()
+
+    @patch("core.tts_engine.PiperVoice", side_effect=FileNotFoundError("Voice not found"))
+    @patch.object(TTSEngine, "_say_pyttsx3")
+    def test_say_piper_failure_falls_back(self, mock_say_pyttsx3, mock_piper_voice):
+        """piper failure should fall back to pyttsx3."""
+        engine = TTSEngine(engine="piper")
+        engine.say("Hello", lang="en")
+
+        mock_say_pyttsx3.assert_called_once_with("Hello")
 
 
 class TestTTSEnginePyttsx3:
-    """Test pyttsx3 engine path."""
+    """Test pyttsx3 engine path (fallback)."""
 
     @patch("pyttsx3.init")
     def test_say_pyttsx3_success(self, mock_pyttsx3_init):
@@ -35,7 +86,7 @@ class TestTTSEnginePyttsx3:
         mock_pyttsx3_init.return_value = mock_engine
 
         engine = TTSEngine(engine="pyttsx3")
-        engine.say("Hello world")
+        engine.say("Hello world", lang="en")
 
         mock_pyttsx3_init.assert_called_once()
         mock_engine.setProperty.assert_any_call("rate", 180)
@@ -50,93 +101,48 @@ class TestTTSEnginePyttsx3:
         mock_pyttsx3_init.return_value = mock_engine
 
         engine = TTSEngine(engine="pyttsx3", voice_id="english")
-        engine.say("Test")
+        engine.say("Test", lang="en")
 
         mock_engine.setProperty.assert_any_call("voice", "english")
 
     @patch("pyttsx3.init")
-    @patch.object(TTSEngine, "_say_gtts")
-    def test_say_pyttsx3_failure_falls_back(self, mock_say_gtts, mock_pyttsx3_init):
-        """pyttsx3 failure should fall back to gTTS."""
+    @patch.object(TTSEngine, "_say_fallback")
+    def test_say_pyttsx3_failure_falls_back(self, mock_say_fallback, mock_pyttsx3_init):
+        """pyttsx3 failure should fall back to print."""
         mock_pyttsx3_init.side_effect = RuntimeError("No TTS engine")
 
         engine = TTSEngine(engine="pyttsx3")
-        engine.say("Hello")
+        engine.say("Hello", lang="en")
 
-        mock_say_gtts.assert_called_once_with("Hello")
-
-
-class TestTTSEngineGtts:
-    """Test gTTS engine path."""
-
-    @patch("gtts.gTTS")
-    @patch("tempfile.NamedTemporaryFile")
-    @patch("shutil.which")
-    @patch("subprocess.run")
-    def test_say_gtts_success(
-        self, mock_subprocess_run, mock_shutil_which, mock_tempfile, mock_gtts
-    ):
-        """gTTS success should synthesize and play."""
-        mock_tts = Mock()
-        mock_gtts.return_value = mock_tts
-
-        mock_fp = Mock()
-        mock_fp.name = "/tmp/test.mp3"
-        mock_tempfile.return_value.__enter__.return_value = mock_fp
-
-        mock_shutil_which.return_value = "/usr/bin/mpv"
-        mock_subprocess_run.return_value = Mock()
-
-        engine = TTSEngine(engine="gTTS")
-        engine._say_gtts("Hello world")
-
-        mock_gtts.assert_called_once_with(text="Hello world", lang="en", slow=False)
-        mock_tts.write_to_fp.assert_called_once()
-        mock_shutil_which.assert_called()
-        mock_subprocess_run.assert_called()
-
-    @patch("gtts.gTTS")
-    @patch("pyttsx3.init")
-    @patch("builtins.print")
-    def test_say_gtts_failure_falls_back(self, mock_print, mock_pyttsx3_init, mock_gtts):
-        """gTTS failure should fall back to pyttsx3 then print."""
-        mock_gtts.side_effect = ConnectionError("No internet")
-        mock_pyttsx3_init.side_effect = RuntimeError("pyttsx3 failed")
-
-        engine = TTSEngine(engine="gTTS")
-        engine.say("Hello")
-
-        mock_print.assert_called_once_with("[TTS fallback] Hello")
+        mock_say_fallback.assert_called_once_with("Hello")
 
 
 class TestTTSEngineFallbackChain:
     """Test complete fallback chain."""
 
-    @patch("pyttsx3.init")
-    @patch("gtts.gTTS")
-    @patch("builtins.print")
-    def test_pyttsx3_then_gtts_then_print(self, mock_print, mock_gtts, mock_pyttsx3_init):
-        """Chain: pyttsx3 fails -> gTTS fails -> print."""
-        mock_pyttsx3_init.side_effect = RuntimeError("pyttsx3 failed")
-        mock_gtts.side_effect = ConnectionError("gTTS failed")
+    @patch("core.tts_engine.PiperVoice", side_effect=FileNotFoundError("piper failed"))
+    @patch("pyttsx3.init", side_effect=RuntimeError("pyttsx3 failed"))
+    @patch.object(TTSEngine, "_say_fallback")
+    def test_piper_then_pyttsx3_then_print(
+        self, mock_say_fallback, mock_pyttsx3_init, mock_piper_voice
+    ):
+        """Chain: piper fails -> pyttsx3 fails -> print."""
+        engine = TTSEngine(engine="piper")
+        engine.say("Test message", lang="en")
 
+        mock_say_fallback.assert_called_once_with("Test message")
+
+    @patch("pyttsx3.init", side_effect=RuntimeError("pyttsx3 failed"))
+    @patch("core.tts_engine.PiperVoice", side_effect=FileNotFoundError("piper failed"))
+    @patch.object(TTSEngine, "_say_fallback")
+    def test_pyttsx3_then_piper_then_print(
+        self, mock_say_fallback, mock_piper_voice, mock_pyttsx3_init
+    ):
+        """Chain: pyttsx3 fails -> piper fails -> print."""
         engine = TTSEngine(engine="pyttsx3")
-        engine.say("Test message")
+        engine.say("Test message", lang="en")
 
-        mock_print.assert_called_once_with("[TTS fallback] Test message")
-
-    @patch("gtts.gTTS")
-    @patch("pyttsx3.init")
-    @patch("builtins.print")
-    def test_gtts_then_print(self, mock_print, mock_pyttsx3_init, mock_gtts):
-        """Chain: gTTS fails -> pyttsx3 fails -> print."""
-        mock_gtts.side_effect = ConnectionError("gTTS failed")
-        mock_pyttsx3_init.side_effect = RuntimeError("pyttsx3 failed")
-
-        engine = TTSEngine(engine="gTTS")
-        engine.say("Test message")
-
-        mock_print.assert_called_once_with("[TTS fallback] Test message")
+        mock_say_fallback.assert_called_once_with("Test message")
 
 
 class TestTTSEngineEdgeCases:
@@ -148,7 +154,7 @@ class TestTTSEngineEdgeCases:
         mock_engine = Mock()
         mock_pyttsx3_init.return_value = mock_engine
 
-        engine = TTSEngine()
+        engine = TTSEngine(engine="pyttsx3")
         engine.say("")
 
         mock_engine.say.assert_called_once_with("")
@@ -159,7 +165,7 @@ class TestTTSEngineEdgeCases:
         mock_engine = Mock()
         mock_pyttsx3_init.return_value = mock_engine
 
-        engine = TTSEngine()
+        engine = TTSEngine(engine="pyttsx3")
 
         with patch("core.tts_engine.logger") as mock_logger:
             engine.say("Test")
@@ -173,99 +179,85 @@ class TestTTSEngineEdgeCases:
         mock_engine = Mock()
         mock_pyttsx3_init.return_value = mock_engine
 
-        engine = TTSEngine()
+        engine = TTSEngine(engine="pyttsx3")
         engine.say("Hello 🌍")
 
         mock_engine.say.assert_called_once_with("Hello 🌍")
 
+    @patch("pyttsx3.init")
+    def test_say_arabic_text_uses_ar_voice(self, mock_pyttsx3_init):
+        """Arabic text should be detected and use pyttsx3 (piper fallback)."""
+        mock_engine = Mock()
+        mock_pyttsx3_init.return_value = mock_engine
 
-class TestTTSEngineGttsDetails:
-    """Test gTTS specific details."""
+        engine = TTSEngine(engine="pyttsx3")
+        engine.say("مرحبا", lang="ar")
 
-    @patch("gtts.gTTS")
-    @patch("tempfile.NamedTemporaryFile")
-    @patch("shutil.which")
-    @patch("subprocess.run")
-    def test_gtts_uses_correct_lang(
-        self, mock_subprocess_run, mock_shutil_which, mock_tempfile, mock_gtts
-    ):
-        """gTTS should use correct language."""
-        mock_tts = Mock()
-        mock_gtts.return_value = mock_tts
+        mock_engine.say.assert_called_once_with("مرحبا")
 
-        mock_fp = Mock()
-        mock_fp.name = "/tmp/test.mp3"
-        mock_tempfile.return_value.__enter__.return_value = mock_fp
 
-        mock_shutil_which.return_value = "/usr/bin/mpv"
-        mock_subprocess_run.return_value = Mock()
+class TestTTSEngineLanguageDetection:
+    """Test language detection."""
 
-        engine = TTSEngine(engine="gTTS", lang="es")
-        engine._say_gtts("Hola")
+    def test_detect_language_arabic(self):
+        """Arabic script should be detected as ar."""
+        engine = TTSEngine()
+        assert engine._detect_language("مرحبا") == "ar"
+        assert engine._detect_language("السلام عليكم") == "ar"
 
-        mock_gtts.assert_called_once_with(text="Hola", lang="es", slow=False)
+    def test_detect_language_english(self):
+        """Latin script should be detected as en."""
+        engine = TTSEngine()
+        assert engine._detect_language("Hello") == "en"
+        assert engine._detect_language("How are you?") == "en"
 
-    @patch("gtts.gTTS")
-    @patch("tempfile.NamedTemporaryFile")
-    @patch("shutil.which")
-    @patch("subprocess.run")
-    def test_gtts_cleans_up_temp_file(
-        self, mock_subprocess_run, mock_shutil_which, mock_tempfile, mock_gtts
-    ):
-        """Temp file should be cleaned up."""
-        mock_tts = Mock()
-        mock_gtts.return_value = mock_tts
-
-        mock_fp = Mock()
-        mock_fp.name = "/tmp/test.mp3"
-        mock_tempfile.return_value.__enter__.return_value = mock_fp
-
-        mock_shutil_which.return_value = "/usr/bin/mpv"
-        mock_subprocess_run.return_value = Mock()
-
-        engine = TTSEngine(engine="gTTS")
-        engine._say_gtts("Test")
-
-        # Temp file context manager should be called
-        mock_tempfile.assert_called()
+    def test_detect_language_mixed(self):
+        """Mixed text: any Arabic char -> ar, else en."""
+        engine = TTSEngine()
+        # Contains Arabic char -> ar
+        assert engine._detect_language("مرحبا world") == "ar"
+        # Contains Arabic char -> ar
+        assert engine._detect_language("Hello عالم") == "ar"
+        # No Arabic -> en
+        assert engine._detect_language("Hello world") == "en"
 
 
 class TestTTSEngineEngineSwitching:
     """Test engine preference switching."""
 
+    @patch("core.tts_engine.PiperVoice")
+    @patch("core.tts_engine.sd")
+    @patch("core.tts_engine.np")
+    @patch("core.tts_engine.Path.exists", return_value=True)
+    def test_default_engine_is_piper(self, mock_exists, mock_np, mock_sd, mock_piper_voice):
+        """Default engine should be piper."""
+        mock_voice = Mock()
+        mock_voice.config.sample_rate = 22050
+        mock_voice.synthesize.return_value = [Mock(audio_int16_bytes=b"\x00\x01" * 1000)]
+        mock_piper_voice.load.return_value = mock_voice
+
+        mock_audio_array = Mock()
+        mock_np.frombuffer.return_value = mock_audio_array
+        mock_np.int16 = "int16"
+        mock_np.float32 = "float32"
+        mock_audio_array.astype.return_value = mock_audio_array
+        mock_audio_array.__truediv__ = Mock(return_value=mock_audio_array)
+
+        engine = TTSEngine()  # Default engine="piper"
+        engine.say("Test", lang="en")
+
+        mock_piper_voice.load.assert_called_once()
+
     @patch("pyttsx3.init")
-    def test_default_engine_is_pyttsx3(self, mock_pyttsx3_init):
-        """Default engine should be pyttsx3."""
+    def test_can_set_pyttsx3_as_preferred(self, mock_pyttsx3_init):
+        """Can set pyttsx3 as preferred engine."""
         mock_engine = Mock()
         mock_pyttsx3_init.return_value = mock_engine
 
-        engine = TTSEngine()
-        engine.say("Test")
+        engine = TTSEngine(engine="pyttsx3")
+        engine.say("Test", lang="en")
 
         mock_pyttsx3_init.assert_called_once()
-
-    @patch("gtts.gTTS")
-    @patch("tempfile.NamedTemporaryFile")
-    @patch("shutil.which")
-    @patch("subprocess.run")
-    def test_can_set_gtts_as_preferred(
-        self, mock_subprocess_run, mock_shutil_which, mock_tempfile, mock_gtts
-    ):
-        """Can set gTTS as preferred engine."""
-        mock_tts = Mock()
-        mock_gtts.return_value = mock_tts
-
-        mock_fp = Mock()
-        mock_fp.name = "/tmp/test.mp3"
-        mock_tempfile.return_value.__enter__.return_value = mock_fp
-
-        mock_shutil_which.return_value = "/usr/bin/mpv"
-        mock_subprocess_run.return_value = Mock()
-
-        engine = TTSEngine(engine="gTTS")
-        engine.say("Test")
-
-        mock_gtts.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -8,47 +8,54 @@ from click.testing import CliRunner
 from voice_assistant.main import cli
 
 
+def create_mock_settings() -> Mock:
+    """Create a properly structured mock Settings object."""
+    mock_settings = Mock()
+
+    # STT settings (updated for new config)
+    mock_settings.stt = Mock()
+    mock_settings.stt.model_size = "large-v3"
+    mock_settings.stt.device = "cuda"
+    mock_settings.stt.compute_type = "float16"
+    mock_settings.stt.max_listen_seconds = 5
+    mock_settings.stt.language = "ar"
+    mock_settings.stt.vad_threshold = 0.5
+    mock_settings.stt.model_dir = "models/stt"
+    mock_settings.stt.vad_filter = True
+    mock_settings.stt.vad_min_silence_ms = 500
+
+    # TTS settings (updated for new config)
+    mock_settings.tts = Mock()
+    mock_settings.tts.engine = "piper"
+    mock_settings.tts.rate = 180
+    mock_settings.tts.volume = 0.9
+    mock_settings.tts.voice_id = None
+    mock_settings.tts.piper_voice_dir = "models/tts"
+    mock_settings.tts.piper_voice_ar = "ar_EG-medium"
+    mock_settings.tts.piper_voice_en = "en_US-medium"
+
+    # NLP settings
+    mock_settings.nlp = Mock()
+    mock_settings.nlp.confidence_threshold = 0.6
+
+    # Audio settings
+    mock_settings.audio = Mock()
+    mock_settings.audio.sample_rate = 16000
+    mock_settings.audio.channels = 1
+
+    # Log settings
+    mock_settings.log = Mock()
+    mock_settings.log.level = "INFO"
+
+    return mock_settings
+
+
 class TestFullPipeline:
     """Test complete voice assistant pipeline."""
 
     def setup_method(self):
         """Set up CLI runner."""
         self.runner = CliRunner()
-
-    def create_mock_settings(self) -> Mock:
-        """Create a properly structured mock Settings object."""
-        mock_settings = Mock()
-
-        # STT settings
-        mock_settings.stt = Mock()
-        mock_settings.stt.model_size = "tiny.en"
-        mock_settings.stt.device = "cpu"
-        mock_settings.stt.compute_type = "int8"
-        mock_settings.stt.max_listen_seconds = 10
-        mock_settings.stt.language = "en"
-        mock_settings.stt.vad_threshold = 0.5
-
-        # TTS settings
-        mock_settings.tts = Mock()
-        mock_settings.tts.engine = "pyttsx3"
-        mock_settings.tts.rate = 180
-        mock_settings.tts.volume = 0.9
-        mock_settings.tts.language = "en"
-
-        # NLP settings
-        mock_settings.nlp = Mock()
-        mock_settings.nlp.confidence_threshold = 0.6
-
-        # Audio settings
-        mock_settings.audio = Mock()
-        mock_settings.audio.sample_rate = 16000
-        mock_settings.audio.channels = 1
-
-        # Log settings
-        mock_settings.log = Mock()
-        mock_settings.log.level = "INFO"
-
-        return mock_settings
 
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.STTEngine")
@@ -59,12 +66,12 @@ class TestFullPipeline:
         self, mock_tts_class, mock_get_time, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """Full E2E: mic -> STT -> NLP -> action -> TTS for time query."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "what time is it"
+        mock_stt.transcribe.return_value = ("what time is it", "en")  # Return tuple (text, lang)
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()
@@ -81,9 +88,9 @@ class TestFullPipeline:
         assert result.exit_code == 0
         mock_stt.record_audio.assert_called_once()
         mock_stt.transcribe.assert_called_once()
-        mock_nlp.parse.assert_called_once_with("what time is it")
+        mock_nlp.parse.assert_called_once_with("what time is it", stt_language="en")
         mock_get_time.assert_called_once()
-        mock_tts.say.assert_called_once_with("02:30 PM")
+        mock_tts.say.assert_called_once_with("02:30 PM", lang="en")
 
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.STTEngine")
@@ -94,12 +101,12 @@ class TestFullPipeline:
         self, mock_tts_class, mock_web_search, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """Full E2E for web search query."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "search for cats"
+        mock_stt.transcribe.return_value = ("search for cats", "en")
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()
@@ -115,7 +122,7 @@ class TestFullPipeline:
 
         assert result.exit_code == 0
         mock_web_search.assert_called_once_with("cats")
-        mock_tts.say.assert_called_once_with("Successfully searched for cats")
+        mock_tts.say.assert_called_once_with("Successfully searched for cats", lang="en")
 
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.NLPEngine")
@@ -125,7 +132,7 @@ class TestFullPipeline:
         self, mock_tts_class, mock_get_time, mock_nlp_class, mock_settings_class
     ):
         """Text mode (--once --text) should bypass STT entirely."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_nlp = Mock()
@@ -141,7 +148,7 @@ class TestFullPipeline:
 
         assert result.exit_code == 0
         # STT should NOT be called in text mode
-        mock_nlp.parse.assert_called_once_with("what time is it")
+        mock_nlp.parse.assert_called_once_with("what time is it", stt_language=None)
         mock_get_time.assert_called_once()
         mock_tts.say.assert_called_once_with("02:30 PM")
 
@@ -153,42 +160,12 @@ class TestErrorRecovery:
         """Set up CLI runner."""
         self.runner = CliRunner()
 
-    def create_mock_settings(self) -> Mock:
-        """Create a properly structured mock Settings object."""
-        mock_settings = Mock()
-
-        mock_settings.stt = Mock()
-        mock_settings.stt.model_size = "tiny.en"
-        mock_settings.stt.device = "cpu"
-        mock_settings.stt.compute_type = "int8"
-        mock_settings.stt.max_listen_seconds = 10
-        mock_settings.stt.language = "en"
-        mock_settings.stt.vad_threshold = 0.5
-
-        mock_settings.tts = Mock()
-        mock_settings.tts.engine = "pyttsx3"
-        mock_settings.tts.rate = 180
-        mock_settings.tts.volume = 0.9
-        mock_settings.tts.language = "en"
-
-        mock_settings.nlp = Mock()
-        mock_settings.nlp.confidence_threshold = 0.6
-
-        mock_settings.audio = Mock()
-        mock_settings.audio.sample_rate = 16000
-        mock_settings.audio.channels = 1
-
-        mock_settings.log = Mock()
-        mock_settings.log.level = "INFO"
-
-        return mock_settings
-
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.STTEngine")
     @patch("voice_assistant.main.TTSEngine")
     def test_mic_unavailable_recovery(self, mock_tts_class, mock_stt_class, mock_settings_class):
         """Mic unavailable -> TTS fallback message."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
@@ -213,7 +190,7 @@ class TestErrorRecovery:
         self, mock_tts_class, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """STT model load failure -> TTS fallback."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
@@ -242,12 +219,12 @@ class TestErrorRecovery:
         self, mock_tts_class, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """Unknown intent -> spoken fallback message."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "xyz random gibberish"
+        mock_stt.transcribe.return_value = ("xyz random gibberish", "en")
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()
@@ -273,29 +250,29 @@ class TestErrorRecovery:
         self, mock_tts_class, mock_open_app, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """Action failure (open_app) -> TTS error message."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "open nonexistent"
+        mock_stt.transcribe.return_value = ("open nonexistent", "en")
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()
         mock_nlp.parse.return_value = ("open_app", {"app": "nonexistent"}, 1.0)
         mock_nlp_class.return_value = mock_nlp
 
-        mock_open_app = Mock()
         mock_open_app.side_effect = Exception("App not found")
-        # Note: open_app is in core.actions, not mocked in main.py directly
-        # We need to patch core.actions.open_app
-        mock_nlp_class.return_value = mock_nlp
 
-        # Need to patch core.actions.open_app specifically
-        with patch("voice_assistant.main.open_app", side_effect=Exception("App not found")):
-            # Can't easily test this without modifying the VoiceAssistant class
-            # This test demonstrates the concept
-            pass
+        mock_tts = Mock()
+        mock_tts_class.return_value = mock_tts
+
+        result = self.runner.invoke(cli, ["--once"])
+
+        assert result.exit_code == 0
+        mock_tts.say.assert_called_once()
+        called_text = mock_tts.say.call_args[0][0]
+        assert "error" in called_text.lower() or "not found" in called_text.lower()
 
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.STTEngine")
@@ -306,12 +283,12 @@ class TestErrorRecovery:
         self, mock_tts_class, mock_get_time, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """TTS total failure -> should not crash, log error."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "what time is it"
+        mock_stt.transcribe.return_value = ("what time is it", "en")
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()
@@ -337,36 +314,6 @@ class TestLatencyLogging:
         """Set up CLI runner."""
         self.runner = CliRunner()
 
-    def create_mock_settings(self) -> Mock:
-        """Create a properly structured mock Settings object."""
-        mock_settings = Mock()
-
-        mock_settings.stt = Mock()
-        mock_settings.stt.model_size = "tiny.en"
-        mock_settings.stt.device = "cpu"
-        mock_settings.stt.compute_type = "int8"
-        mock_settings.stt.max_listen_seconds = 10
-        mock_settings.stt.language = "en"
-        mock_settings.stt.vad_threshold = 0.5
-
-        mock_settings.tts = Mock()
-        mock_settings.tts.engine = "pyttsx3"
-        mock_settings.tts.rate = 180
-        mock_settings.tts.volume = 0.9
-        mock_settings.tts.language = "en"
-
-        mock_settings.nlp = Mock()
-        mock_settings.nlp.confidence_threshold = 0.6
-
-        mock_settings.audio = Mock()
-        mock_settings.audio.sample_rate = 16000
-        mock_settings.audio.channels = 1
-
-        mock_settings.log = Mock()
-        mock_settings.log.level = "INFO"
-
-        return mock_settings
-
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.STTEngine")
     @patch("voice_assistant.main.NLPEngine")
@@ -376,12 +323,12 @@ class TestLatencyLogging:
         self, mock_tts_class, mock_get_time, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """Each engine should log latency."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "what time is it"
+        mock_stt.transcribe.return_value = ("what time is it", "en")
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()
@@ -412,36 +359,6 @@ class TestModuleBoundaries:
         """Set up CLI runner."""
         self.runner = CliRunner()
 
-    def create_mock_settings(self) -> Mock:
-        """Create a properly structured mock Settings object."""
-        mock_settings = Mock()
-
-        mock_settings.stt = Mock()
-        mock_settings.stt.model_size = "tiny.en"
-        mock_settings.stt.device = "cpu"
-        mock_settings.stt.compute_type = "int8"
-        mock_settings.stt.max_listen_seconds = 10
-        mock_settings.stt.language = "en"
-        mock_settings.stt.vad_threshold = 0.5
-
-        mock_settings.tts = Mock()
-        mock_settings.tts.engine = "pyttsx3"
-        mock_settings.tts.rate = 180
-        mock_settings.tts.volume = 0.9
-        mock_settings.tts.language = "en"
-
-        mock_settings.nlp = Mock()
-        mock_settings.nlp.confidence_threshold = 0.6
-
-        mock_settings.audio = Mock()
-        mock_settings.audio.sample_rate = 16000
-        mock_settings.audio.channels = 1
-
-        mock_settings.log = Mock()
-        mock_settings.log.level = "INFO"
-
-        return mock_settings
-
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.STTEngine")
     @patch("voice_assistant.main.NLPEngine")
@@ -451,12 +368,12 @@ class TestModuleBoundaries:
         self, mock_tts_class, mock_get_time, mock_nlp_class, mock_stt_class, mock_settings_class
     ):
         """VoiceAssistant should only use public methods of engines."""
-        mock_settings = self.create_mock_settings()
+        mock_settings = create_mock_settings()
         mock_settings_class.load.return_value = mock_settings
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "what time is it"
+        mock_stt.transcribe.return_value = ("what time is it", "en")
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()

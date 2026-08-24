@@ -23,14 +23,21 @@ class TestSettings:
 
             # Check defaults from DESIGN.md
             assert settings.stt.model_size == "large-v3"
-            assert settings.stt.language == "en"
+            assert settings.stt.language == "ar"
             assert settings.stt.device == "cuda"
             assert settings.stt.compute_type == "float16"
+            assert settings.stt.model_dir == "models/stt"
             assert settings.stt.vad_threshold == 0.5
             assert settings.stt.max_listen_seconds == 5
-            assert settings.tts.engine == "pyttsx3"
+            assert settings.stt.vad_filter is True
+            assert settings.stt.vad_min_silence_ms == 500
+            assert settings.tts.engine == "piper"
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9
+            assert settings.tts.voice_id is None
+            assert settings.tts.piper_voice_dir == "models/tts"
+            assert settings.tts.piper_voice_ar == "ar_EG-medium"
+            assert settings.tts.piper_voice_en == "en_US-medium"
             assert settings.nlp.confidence_threshold == 0.6
             assert settings.audio.sample_rate == 16000
             assert settings.audio.channels == 1
@@ -43,12 +50,12 @@ class TestSettings:
             config_data = {
                 "stt": {
                     "model_size": "base.en",
-                    "language": "en",
+                    "language": "ar",
                     "vad_threshold": 0.6,
                     "max_listen_seconds": 5,
                 },
                 "tts": {
-                    "engine": "gTTS",
+                    "engine": "pyttsx3",
                     "rate": 200,
                     "volume": 0.8,
                 },
@@ -68,10 +75,10 @@ class TestSettings:
             settings = Settings.load(config_path)
 
             assert settings.stt.model_size == "base.en"
-            assert settings.stt.language == "en"
+            assert settings.stt.language == "ar"
             assert settings.stt.vad_threshold == 0.6
             assert settings.stt.max_listen_seconds == 5
-            assert settings.tts.engine == "gTTS"
+            assert settings.tts.engine == "pyttsx3"
             assert settings.tts.rate == 200
             assert settings.tts.volume == 0.8
             assert settings.nlp.confidence_threshold == 0.7
@@ -88,7 +95,7 @@ class TestSettings:
                     "model_size": "small.en",
                 },
                 "tts": {
-                    "engine": "gTTS",
+                    "engine": "pyttsx3",
                 },
             }
             config_path.write_text(yaml.dump(config_data))
@@ -97,9 +104,9 @@ class TestSettings:
 
             # Overridden values
             assert settings.stt.model_size == "small.en"
-            assert settings.tts.engine == "gTTS"
+            assert settings.tts.engine == "pyttsx3"
             # Default values preserved
-            assert settings.stt.language == "en"
+            assert settings.stt.language == "ar"
             assert settings.stt.vad_threshold == 0.5
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9

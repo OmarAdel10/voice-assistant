@@ -45,6 +45,10 @@ class VoiceAssistant:
                 device=self.settings.stt.device,
                 compute_type=self.settings.stt.compute_type,
                 sample_rate=self.settings.audio.sample_rate,
+                model_dir=self.settings.stt.model_dir,
+                language=self.settings.stt.language,
+                vad_filter=self.settings.stt.vad_filter,
+                vad_min_silence_ms=self.settings.stt.vad_min_silence_ms,
             )
         return self._stt_engine
 
@@ -63,7 +67,10 @@ class VoiceAssistant:
                 rate=self.settings.tts.rate,
                 volume=self.settings.tts.volume,
                 engine=self.settings.tts.engine,
-                lang=self.settings.tts.language,
+                voice_id=self.settings.tts.voice_id,
+                piper_voice_dir=self.settings.tts.piper_voice_dir,
+                piper_voice_ar=self.settings.tts.piper_voice_ar,
+                piper_voice_en=self.settings.tts.piper_voice_en,
             )
         return self._tts_engine
 
@@ -75,17 +82,18 @@ class VoiceAssistant:
             logger.error(f"TTS fallback failed: {e}")
             logger.error(f"[TTS Error] {e}")
 
-    def process_text(self, text: str) -> str:
+    def process_text(self, text: str, lang: str | None = None) -> str:
         """Process text input through NLP and execute action.
 
         Args:
             text: User input text
+            lang: Detected language from STT (optional)
 
         Returns:
             Response text to speak
         """
         try:
-            intent, entities, confidence = self.nlp_engine.parse(text)
+            intent, entities, confidence = self.nlp_engine.parse(text, stt_language=lang)
 
             if intent == "unknown" or confidence < self.settings.nlp.confidence_threshold:
                 return (
@@ -127,18 +135,18 @@ class VoiceAssistant:
             audio = self.stt_engine.record_audio(self.settings.stt.max_listen_seconds)
 
             logger.info("Transcribing...")
-            text = self.stt_engine.transcribe(audio)
+            text, stt_lang = self.stt_engine.transcribe(audio)
 
             if not text:
                 logger.warning("No speech detected")
                 return
 
-            logger.info(f"Transcribed: {text}")
+            logger.info(f"Transcribed: {text} | Language: {stt_lang}")
 
-            response = self.process_text(text)
+            response = self.process_text(text, lang=stt_lang)
 
             logger.info(f"Response: {response}")
-            self.tts_engine.say(response)
+            self.tts_engine.say(response, lang=stt_lang)
 
         except STTError as e:
             logger.error(f"STT error: {e}")
