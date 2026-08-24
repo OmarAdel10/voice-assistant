@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -22,30 +23,47 @@ class STTEngine:
 
     def __init__(
         self,
-        model_size: str = "tiny.en",
-        device: str = "cpu",
-        compute_type: str = "int8",
+        model_size: str = "large-v3",
+        device: str = "cuda",
+        compute_type: str = "float16",
         sample_rate: int = 16000,
+        model_dir: str = "models/stt",
+        language: str | None = None,
+        vad_filter: bool = True,
+        vad_min_silence_ms: int = 500,
     ) -> None:
         """Initialize STT engine (lazy model loading).
 
         Args:
-            model_size: Whisper model size (tiny.en, base.en, small.en, etc.)
+            model_size: Whisper model size (tiny.en, base.en, small.en, large-v3, etc.)
             device: Device to run on (cpu, cuda)
             compute_type: Quantization type (int8, float16, float32)
             sample_rate: Audio sample rate in Hz
+            model_dir: Local directory for model storage
+            language: Language code (None for auto-detect)
+            vad_filter: Enable VAD filtering
+            vad_min_silence_ms: Minimum silence duration for VAD in milliseconds
         """
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type
         self._sample_rate = sample_rate
+        self._model_dir = Path(model_dir)
+        self._language = language
+        self._vad_filter = vad_filter
+        self._vad_min_silence_ms = vad_min_silence_ms
         self._model: WhisperModel | None = None
+
+    def _get_model_path(self) -> Path:
+        """Get the local model path."""
+        return self._model_dir / self._model_size
 
     def load_model(self) -> None:
         """Load the Whisper model (idempotent)."""
         if self._model is not None:
             return
 
+        model_path = self._get_model_path()
         try:
             # Import here to avoid hard dependency at module load time
             from faster_whisper import WhisperModel  # type: ignore[import-untyped]
@@ -53,11 +71,21 @@ class STTEngine:
             logger.info(
                 f"Loading STT model: {self._model_size} on {self._device} ({self._compute_type})"
             )
-            self._model = WhisperModel(
-                self._model_size,
-                device=self._device,
-                compute_type=self._compute_type,
-            )
+            if model_path.exists():
+                logger.info(f"Loading from local path: {model_path}")
+                self._model = WhisperModel(
+                    str(model_path),
+                    device=self._device,
+                    compute_type=self._compute_type,
+                )
+            else:
+                logger.info("Model not found locally, downloading from Hugging Face Hub...")
+                self._model = WhisperModel(
+                    self._model_size,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                    download_root=str(self._model_dir),
+                )
             logger.info("STT model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load STT model: {e}")
@@ -99,14 +127,14 @@ class STTEngine:
             logger.error(f"Failed to record audio: {e}")
             raise STTError(f"Failed to record audio: {e}") from e
 
-    def transcribe(self, audio: NDArray[np.float32]) -> str:
-        """Transcribe audio to text.
+    def transcribe(self, audio: NDArray[np.float32]) -> tuple[str, str | None]:
+        """Transcribe audio to text with language detection.
 
         Args:
             audio: Audio data as float32 numpy array (mono, 16kHz)
 
         Returns:
-            Transcribed text
+            Tuple of (transcribed_text, detected_language_code)
 
         Raises:
             STTError: If transcription fails
@@ -116,7 +144,7 @@ class STTEngine:
 
         if audio.size == 0:
             logger.warning("Empty audio provided for transcription")
-            return ""
+            return "", None
 
         try:
             start_time = time.perf_counter()
@@ -133,8 +161,9 @@ class STTEngine:
             assert self._model is not None
             segments, info = self._model.transcribe(
                 audio,
-                vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 500},
+                language=self._language,
+                vad_filter=self._vad_filter,
+                vad_parameters={"min_silence_duration_ms": self._vad_min_silence_ms},
             )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
@@ -148,7 +177,7 @@ class STTEngine:
             if not text:
                 logger.warning("Transcription returned empty text")
 
-            return text
+            return text, lang
         except Exception as e:
             logger.error(f"Transcription failed: {e}")
             raise STTError(f"Transcription failed: {e}") from e

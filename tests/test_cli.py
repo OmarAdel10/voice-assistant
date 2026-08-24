@@ -11,21 +11,27 @@ def create_mock_settings() -> Mock:
     """Create a properly structured mock Settings object."""
     mock_settings = Mock()
 
-    # STT settings
+    # STT settings (updated for new config)
     mock_settings.stt = Mock()
-    mock_settings.stt.model_size = "tiny.en"
-    mock_settings.stt.device = "cpu"
-    mock_settings.stt.compute_type = "int8"
-    mock_settings.stt.max_listen_seconds = 10
-    mock_settings.stt.language = "en"
+    mock_settings.stt.model_size = "large-v3"
+    mock_settings.stt.device = "cuda"
+    mock_settings.stt.compute_type = "float16"
+    mock_settings.stt.max_listen_seconds = 5
+    mock_settings.stt.language = "ar"
     mock_settings.stt.vad_threshold = 0.5
+    mock_settings.stt.model_dir = "models/stt"
+    mock_settings.stt.vad_filter = True
+    mock_settings.stt.vad_min_silence_ms = 500
 
-    # TTS settings
+    # TTS settings (updated for new config)
     mock_settings.tts = Mock()
-    mock_settings.tts.engine = "pyttsx3"
+    mock_settings.tts.engine = "piper"
     mock_settings.tts.rate = 180
     mock_settings.tts.volume = 0.9
-    mock_settings.tts.language = "en"
+    mock_settings.tts.voice_id = None
+    mock_settings.tts.piper_voice_dir = "models/tts"
+    mock_settings.tts.piper_voice_ar = "ar_EG-medium"
+    mock_settings.tts.piper_voice_en = "en_US-medium"
 
     # NLP settings
     mock_settings.nlp = Mock()
@@ -88,7 +94,7 @@ class TestCLI:
         result = self.runner.invoke(cli, ["--once", "--text", "what time is it"])
 
         assert result.exit_code == 0
-        mock_nlp.parse.assert_called_once_with("what time is it")
+        mock_nlp.parse.assert_called_once_with("what time is it", stt_language=None)
         mock_get_time.assert_called_once()
 
     @patch("voice_assistant.main.Settings")
@@ -109,7 +115,6 @@ class TestCLI:
         mock_get_date.return_value = "Monday, January 15, 2024"
 
         mock_tts = Mock()
-        mock_tts.return_value = mock_tts
         mock_tts_class.return_value = mock_tts
 
         result = self.runner.invoke(cli, ["--once", "--text", "what date is it"])
@@ -235,7 +240,7 @@ class TestCLI:
 
         mock_stt = Mock()
         mock_stt.record_audio.return_value = Mock()
-        mock_stt.transcribe.return_value = "what time is it"
+        mock_stt.transcribe.return_value = ("what time is it", "en")  # Return tuple (text, lang)
         mock_stt_class.return_value = mock_stt
 
         mock_nlp = Mock()
@@ -252,9 +257,9 @@ class TestCLI:
         assert result.exit_code == 0
         mock_stt.record_audio.assert_called_once()
         mock_stt.transcribe.assert_called_once()
-        mock_nlp.parse.assert_called_once_with("what time is it")
+        mock_nlp.parse.assert_called_once_with("what time is it", stt_language="en")
         mock_get_time.assert_called_once()
-        mock_tts.say.assert_called_once_with("02:30 PM")
+        mock_tts.say.assert_called_once_with("02:30 PM", lang="en")
 
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.STTEngine")

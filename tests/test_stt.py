@@ -29,9 +29,10 @@ class TestSTTEngine:
             engine.load_model()
 
             mock_model_class.assert_called_once_with(
-                "tiny.en",
-                device="cpu",
-                compute_type="int8",
+                "large-v3",
+                device="cuda",
+                compute_type="float16",
+                download_root="models/stt",
             )
             assert engine._model is mock_model
 
@@ -86,8 +87,8 @@ class TestSTTEngine:
             engine.record_audio(duration=3.0)
         assert "Failed to record audio" in str(exc_info.value)
 
-    def test_transcribe_returns_text(self):
-        """transcribe should return transcribed text from model."""
+    def test_transcribe_returns_text_and_lang(self):
+        """transcribe should return transcribed text and detected language."""
         with patch("faster_whisper.WhisperModel") as mock_model_class:
             mock_model = Mock()
             mock_segments = [Mock(text="Hello world"), Mock(text="How are you")]
@@ -99,11 +100,11 @@ class TestSTTEngine:
             audio = np.zeros(16000, dtype=np.float32)  # 1s silence
             result = engine.transcribe(audio)
 
-            assert result == "Hello world How are you"
+            assert result == ("Hello world How are you", "en")
             mock_model.transcribe.assert_called_once()
 
     def test_transcribe_empty_audio_returns_empty_string(self):
-        """Empty audio should return empty string."""
+        """Empty audio should return empty string and None language."""
         with patch("faster_whisper.WhisperModel") as mock_model_class:
             mock_model = Mock()
             mock_info = Mock(language="en", language_probability=0.99)
@@ -114,7 +115,7 @@ class TestSTTEngine:
             audio = np.array([], dtype=np.float32)
             result = engine.transcribe(audio)
 
-            assert result == ""
+            assert result == ("", None)
 
     def test_transcribe_failure_raises_stt_error(self):
         """Transcription failure should raise STTError with context."""
@@ -170,9 +171,10 @@ class TestSTTEngine:
 
             engine = STTEngine()
             audio = engine.record_audio(duration=1.0)
-            text = engine.transcribe(audio)
+            text, lang = engine.transcribe(audio)
 
             assert text == "Test transcription"
+            assert lang == "en"
 
 
 class TestSTTEngineModelCache:

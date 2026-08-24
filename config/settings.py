@@ -18,15 +18,20 @@ class STTConfig(BaseModel):
     model_config = {"frozen": True}
 
     model_size: str = Field(default="large-v3", description="Whisper model size")
-    language: str = Field(default="en", description="Language code")
-device: str = Field(default="cuda", description="Device to run on (cpu, cuda)")
+    language: str = Field(
+        default="ar", description="Language code (ar for Arabic, None for auto-detect)"
+    )
+    device: str = Field(default="cuda", description="Device to run on (cpu, cuda)")
     compute_type: str = Field(
         default="float16", description="Quantization type (int8, float16, float32)"
     )
+    model_dir: str = Field(default="models/stt", description="Local model directory")
     vad_threshold: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Voice activity detection threshold"
     )
     max_listen_seconds: int = Field(default=5, gt=0, description="Maximum recording duration")
+    vad_filter: bool = Field(default=True, description="Enable VAD filtering")
+    vad_min_silence_ms: int = Field(default=500, gt=0, description="Min silence duration for VAD")
 
 
 class TTSConfig(BaseModel):
@@ -34,10 +39,13 @@ class TTSConfig(BaseModel):
 
     model_config = {"frozen": True}
 
-    engine: Literal["pyttsx3", "gTTS"] = Field(default="pyttsx3", description="TTS engine")
+    engine: Literal["piper", "pyttsx3"] = Field(default="piper", description="TTS engine")
     rate: int = Field(default=180, gt=0, description="Speech rate (words per minute)")
     volume: float = Field(default=0.9, ge=0.0, le=1.0, description="Volume level")
-    language: str = Field(default="en", description="Language code for gTTS")
+    voice_id: str | None = Field(default=None, description="Voice ID for pyttsx3")
+    piper_voice_dir: str = Field(default="models/tts", description="Local piper voices directory")
+    piper_voice_ar: str = Field(default="ar_EG-medium", description="Arabic piper voice")
+    piper_voice_en: str = Field(default="en_US-medium", description="English piper voice")
 
 
 class NLPConfig(BaseModel):
