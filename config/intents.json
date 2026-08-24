@@ -2,31 +2,47 @@
   "intents": [
     {
       "name": "get_time",
-      "patterns": [
+      "patterns_en": [
         "what time is it",
         "current time",
         "tell me the time",
         "time please",
         "what's the time"
       ],
+      "patterns_ar": [
+        "ما الوقت",
+        "الوقت كم",
+        "ساعة كم",
+        "time الآن",
+        "كم الساعة"
+      ],
       "entities": [],
-      "response_template": "It is {time}."
+      "response_template_en": "It is {time}.",
+      "response_template_ar": "الساعة {time}."
     },
     {
       "name": "get_date",
-      "patterns": [
+      "patterns_en": [
         "what date is it",
         "today's date",
         "what day is it",
         "what is today",
         "current date"
       ],
+      "patterns_ar": [
+        "التاريخ",
+        "اليوم كم",
+        "ما التاريخ",
+        "date اليوم",
+        "كم التاريخ"
+      ],
       "entities": [],
-      "response_template": "Today is {date}."
+      "response_template_en": "Today is {date}.",
+      "response_template_ar": "اليوم {date}."
     },
     {
       "name": "get_sys_info",
-      "patterns": [
+      "patterns_en": [
         "system info",
         "system status",
         "cpu usage",
@@ -35,31 +51,54 @@
         "system resources",
         "hardware info"
       ],
+      "patterns_ar": [
+        "معلومات النظام",
+        "حالة النظام",
+        "استخدام المعالج",
+        "الرام",
+        "مساحة القرص",
+        "موارد النظام"
+      ],
       "entities": [],
-      "response_template": "CPU: {cpu}% | Memory: {memory}% | Disk: {disk}%"
+      "response_template_en": "CPU: {cpu}% | Memory: {memory}% | Disk: {disk}%",
+      "response_template_ar": "المعالج: {cpu}% | الذاكرة: {memory}% | القرص: {disk}%"
     },
     {
       "name": "open_app",
-      "patterns": [
+      "patterns_en": [
         "open {app}",
         "launch {app}",
         "start {app}",
         "run {app}"
       ],
+      "patterns_ar": [
+        "افتح {app}",
+        "شغل {app}",
+        "شغللي {app}",
+        "open {app}"
+      ],
       "entities": ["app"],
-      "response_template": "Opening {app}."
+      "response_template_en": "Opening {app}.",
+      "response_template_ar": "جاري فتح {app}."
     },
     {
       "name": "web_search",
-      "patterns": [
+      "patterns_en": [
         "search for {query}",
         "google {query}",
         "look up {query}",
         "find {query}",
         "search {query}"
       ],
+      "patterns_ar": [
+        "ابحث عن {query}",
+        "جوجل {query}",
+        "دور على {query}",
+        "search {query}"
+      ],
       "entities": ["query"],
-      "response_template": "Searching for {query}."
+      "response_template_en": "Searching for {query}.",
+      "response_template_ar": "جاري البحث عن {query}."
     }
   ]
 }
