@@ -76,6 +76,7 @@ class TestFullPipeline:
 
         mock_nlp = Mock()
         mock_nlp.parse.return_value = ("get_time", {}, 1.0)
+        mock_nlp._detect_language.return_value = "en"
         mock_nlp_class.return_value = mock_nlp
 
         mock_get_time.return_value = "02:30 PM"
@@ -111,6 +112,7 @@ class TestFullPipeline:
 
         mock_nlp = Mock()
         mock_nlp.parse.return_value = ("web_search", {"query": "cats"}, 1.0)
+        mock_nlp._detect_language.return_value = "en"
         mock_nlp_class.return_value = mock_nlp
 
         mock_web_search.return_value = "Successfully searched for cats"
@@ -137,6 +139,7 @@ class TestFullPipeline:
 
         mock_nlp = Mock()
         mock_nlp.parse.return_value = ("get_time", {}, 1.0)
+        mock_nlp._detect_language.return_value = "en"
         mock_nlp_class.return_value = mock_nlp
 
         mock_get_time.return_value = "02:30 PM"
@@ -150,7 +153,7 @@ class TestFullPipeline:
         # STT should NOT be called in text mode
         mock_nlp.parse.assert_called_once_with("what time is it", stt_language=None)
         mock_get_time.assert_called_once()
-        mock_tts.say.assert_called_once_with("02:30 PM")
+        mock_tts.say.assert_called_once_with("02:30 PM", lang="en")
 
 
 class TestErrorRecovery:

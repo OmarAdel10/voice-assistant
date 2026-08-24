@@ -249,6 +249,7 @@ class TestCLI:
 
         mock_nlp = Mock()
         mock_nlp.parse.return_value = ("get_time", {}, 1.0)
+        mock_nlp._detect_language.return_value = "en"
         mock_nlp_class.return_value = mock_nlp
 
         mock_get_time.return_value = "02:30 PM"

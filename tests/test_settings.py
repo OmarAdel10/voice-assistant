@@ -36,8 +36,10 @@ class TestSettings:
             assert settings.tts.volume == 0.9
             assert settings.tts.voice_id is None
             assert settings.tts.piper_voice_dir == "models/tts"
-            assert settings.tts.piper_voice_ar == "ar_EG-medium"
-            assert settings.tts.piper_voice_en == "en_US-medium"
+            assert settings.tts.piper_voice_ar == "ar_JO-kareem-medium"
+            assert settings.tts.piper_voice_en == "en_US-lessac-medium"
+            assert settings.tts.piper_voice_ar_fallback == "ar_JO-kareem-low"
+            assert settings.tts.piper_voice_en_fallback == "en_US-lessac-low"
             assert settings.nlp.confidence_threshold == 0.6
             assert settings.audio.sample_rate == 16000
             assert settings.audio.channels == 1
