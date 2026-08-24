@@ -116,10 +116,31 @@ class NLPEngine:
         return text.strip().lower()
 
     def _detect_language(self, text: str, stt_language: str | None = None) -> str:
-        """Detect language from STT output or langdetect fallback."""
-        # STT language takes priority
+        """Detect language from STT output or langdetect fallback.
+
+        If STT language and text language differ, trust text language
+        (more reliable for intent matching than audio-based STT guess).
+        """
+        # STT language takes priority IF it matches text language
         if stt_language:
-            return "ar" if stt_language.startswith("ar") else "en"
+            stt_lang = "ar" if stt_language.startswith("ar") else "en"
+            # Verify with langdetect
+            if detect:
+                try:
+                    text_lang = detect(text)
+                    text_lang = "ar" if text_lang == "ar" else "en"
+                    # If they match, use STT language
+                    if text_lang == stt_lang:
+                        return stt_lang
+                    # If they differ, prefer text language (more reliable for intent matching)
+                    logger.warning(
+                        f"STT language ({stt_lang}) != text language "
+                        f"({text_lang}), using text language"
+                    )
+                    return text_lang
+                except Exception:
+                    pass
+            return stt_lang
 
         # Fallback to langdetect
         if detect:
