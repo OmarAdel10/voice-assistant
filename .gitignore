@@ -43,3 +43,6 @@ Thumbs.db
 
 docs/
 AGENTS.md
+
+# Models (downloaded at runtime)
+models/
