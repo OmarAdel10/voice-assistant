@@ -19,6 +19,10 @@ class STTConfig(BaseModel):
 
     model_size: str = Field(default="tiny.en", description="Whisper model size")
     language: str = Field(default="en", description="Language code")
+    device: str = Field(default="cpu", description="Device to run on (cpu, cuda)")
+    compute_type: str = Field(
+        default="int8", description="Quantization type (int8, float16, float32)"
+    )
     vad_threshold: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Voice activity detection threshold"
     )
