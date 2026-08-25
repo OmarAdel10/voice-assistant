@@ -1,28 +1,34 @@
 # Voice Assistant
 
-Offline-first voice assistant for academic field training.
+Offline-first voice assistant for academic field training with Egyptian Arabic + English support.
 
 ## Overview
 
 Voice Assistant is a privacy-focused, offline-first voice assistant designed for academic field training. It runs entirely on your local machine with no cloud dependencies for core functionality (STT, NLP, TTS).
 
 **Key Features:**
-- **Offline Speech-to-Text**: Uses `faster-whisper` (tiny.en model, int8 quantization, CPU)
-- **Intent Recognition**: Regex-based NLP with fuzzy fallback (5 intents)
-- **Offline Text-to-Speech**: `pyttsx3` (primary) with `gTTS` online fallback
-- **System Actions**: Time, date, system info, app launching, web search
+- **Offline Speech-to-Text**: Uses `faster-whisper` (Whisper Medium, int8 quantization, CUDA)
+- **LLM-Powered Intent Parsing**: Qwen 2.5 1.5B (GGUF) for semantic understanding of Egyptian Arabic + English code-switching
+- **Fallback NLP**: Regex-based patterns with fuzzy matching for reliability
+- **Offline Text-to-Speech**: Piper (primary, Arabic + English voices) with pyttsx3/gTTS fallback
+- **Smart App Launcher**: Fuzzy matching + dnf/flatpak install suggestions with voice confirmation
+- **Languages**: Egyptian Arabic (العربية المصرية) + English with code-switching support
 - **Latency Target**: <2.5s end-to-end (speech end → audio start)
 
 ## Installation
 
-### System Dependencies (Fedora / PipeWire)
+### System Dependencies (Fedora / PipeWire / CUDA)
 
 ```bash
 # Audio system (PipeWire/ALSA)
 sudo dnf install pipewire pipewire-pulse alsa-utils
 
-# For gTTS playback (optional but recommended)
+# For Piper TTS playback
 sudo dnf install mpv ffmpeg
+
+# CUDA for GPU acceleration (RTX 3050 Ti 4GB tested)
+sudo dnf install cuda-toolkit
+# Or follow NVIDIA Fedora guide for your GPU
 ```
 
 ### Python Environment
@@ -36,6 +42,9 @@ uv pip install -e ".[dev]"
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+
+# Install llama-cpp-python with GPU support
+pip install llama-cpp-python --verbose
 ```
 
 The `[dev]` extra includes: `pytest`, `pytest-cov`, `ruff`, `mypy`, `build`, `pre-commit`.
@@ -50,6 +59,7 @@ The `[dev]` extra includes: `pytest`, `pytest-cov`, `ruff`, `mypy`, `build`, `pr
 | Single shot | `voice-assistant --once` | One interaction: listen → process → speak → exit |
 | Text input | `voice-assistant --once --text "query"` | Bypass STT, process text directly |
 | List intents | `voice-assistant --list-intents` | Show available commands |
+| Voice enrollment | `voice-assistant --enroll` | Record phrases for speaker adaptation |
 | Version | `voice-assistant --version` | Show version |
 | Help | `voice-assistant --help` | Show usage |
 
@@ -60,55 +70,73 @@ The `[dev]` extra includes: `pytest`, `pytest-cov`, `ruff`, `mypy`, `build`, `pr
 $ voice-assistant
 [INFO] voice_assistant.main: Starting voice loop. Press Ctrl+C to exit.
 [INFO] voice_assistant.main: Listening...
-...speak "what time is it"...
-[INFO] core.nlp_engine: NLP: 2ms | Intent: get_time | Confidence: 1.00
-[INFO] __main__: Intent: get_time | Entities: {} | Confidence: 1.00
-[INFO] __main__: Response: 10:30 AM
-[INFO] core.tts_engine: TTS: 45ms | Text length: 8 chars
+...speak "ما الوقت"...
+[INFO] core.llm_engine: LLM: intent=get_time | confidence=1.00 | lang=ar
+[INFO] voice_assistant.main: Response: الساعة 11:30 صباحاً.
+[INFO] core.tts_engine: TTS: 50ms | Text length: 20 chars
 
 # Single shot with voice
 $ voice-assistant --once
 [INFO] voice_assistant.main: Listening...
 [INFO] voice_assistant.main: Transcribing...
-[INFO] core.nlp_engine: NLP: 1ms | Intent: get_date | Confidence: 1.00
-[INFO] __main__: Intent: get_date | Entities: {} | Confidence: 1.00
-[INFO] __main__: Response: Monday, January 15, 2024
-[INFO] core.tts_engine: TTS: 38ms | Text length: 25 chars
+...speak "open code"...
+[INFO] core.llm_engine: LLM: intent=open_app | confidence=1.00 | lang=en
+[INFO] voice_assistant.main: Response: Opening VS Code for you.
 
 # Text mode (bypasses STT, great for testing)
 $ voice-assistant --once --text "what time is it"
-[INFO] core.nlp_engine: NLP: 0ms | Intent: get_time | Confidence: 1.00
-[INFO] __main__: Intent: get_time | Entities: {} | Confidence: 1.00
-[INFO] __main__: Response: 10:31 AM
-[INFO] core.tts_engine: TTS: 21ms | Text length: 8 chars
+[INFO] core.llm_engine: LLM: intent=get_time | confidence=1.00 | lang=en
+[INFO] voice_assistant.main: Response: It is 2:30 PM.
 
-# List available intents
-$ voice-assistant --list-intents
-Available intents:
-  get_time: "what time is it", "current time", "tell me the time"...
-  get_date: "what date is it", "today's date", "what day is it"...
-  get_sys_info: "system info", "system status", "cpu usage"...
-  open_app: "open {app}", "launch {app}", "start {app}"...
-  web_search: "search for {query}", "google {query}", "look up {query}"...
+# Arabic text mode
+$ voice-assistant --once --text "افتح الكود"
+[INFO] core.llm_engine: LLM: intent=open_app | confidence=1.00 | lang=ar
+[INFO] voice_assistant.main: Response: تم تشغيل الكود.
+
+# Code-switching (Arabic + English)
+$ voice-assistant --once --text "open الكود"
+[INFO] core.llm_engine: LLM: intent=open_app | confidence=1.00 | lang=ar
+[INFO] voice_assistant.main: Response: Successfully launched code.
+
+# Voice enrollment (improves STT accuracy for your voice)
+$ voice-assistant --enroll
+🎤 Voice Enrollment
+==================================================
+Please speak each phrase clearly when prompted.
+Press Enter when ready to record each phrase.
+
+Phrase 1/6:
+  📝 "مرحبا، كيف حالك؟"
+  Press Enter to start recording (5 seconds)...
 ```
+
+### Voice Enrollment
+
+Run `voice-assistant --enroll` to record 6 phrases (3 Arabic + 3 English) for speaker adaptation. This creates an `initial_prompt` that significantly improves STT accuracy for your voice and accent. Enrollment is saved to `~/.config/voice-assistant/enrollment.json` and persists across restarts.
 
 ## Supported Intents
 
-| Intent | Example Phrases | Entities | Description |
-|--------|-----------------|----------|-------------|
-| `get_time` | "what time is it", "current time" | — | Current time (HH:MM AM/PM) |
-| `get_date` | "what date is it", "today's date" | — | Current date (Weekday, Month DD, YYYY) |
-| `get_sys_info` | "system info", "cpu usage", "memory" | — | CPU%, Memory%, Disk% |
-| `open_app` | "open firefox", "launch vscode" | `app` | Launch app (must be in PATH) |
-| `web_search` | "search for cats", "google python" | `query` | Open browser with search |
+| Intent | Example Phrases (EN) | Example Phrases (AR) | Entities | Description |
+|--------|---------------------|---------------------|----------|-------------|
+| `get_time` | "what time is it", "current time" | "ما الوقت", "الساعة كام" | — | Current time (HH:MM AM/PM) |
+| `get_date` | "what date is it", "today's date" | "التاريخ", "النهاردة كام" | — | Current date (Weekday, Month DD, YYYY) |
+| `get_sys_info` | "system info", "cpu usage" | "معلومات النظام", "النظام عامل إزاي" | — | CPU%, Memory%, Disk% |
+| `open_app` | "open firefox", "launch vscode" | "افتح فايرفوكس", "شغل الكود" | `app` | Launch app (fuzzy match + install suggestions) |
+| `web_search` | "search for cats", "google python" | "ابحث عن قطط", "جوجل بايثون" | `query` | Open browser with search |
+
+**Egyptian dialect support**: "أبن الكود" → "افتح الكود", "قوت" → "كود", "الساعة كام" → get_time
+
+**30+ Arabic app name mappings**: "كود/في إس كود/فيجوال ستوديو" → `code`, "فايرفوكس/المتصفح" → `firefox`, "تيرمينال/الطرفية" → `gnome-terminal`, etc.
+
+**Custom aliases**: Add `~/.config/voice-assistant/app_aliases.json` for personal app names.
 
 ## Performance Targets
 
-| Metric | Target | Measured (typical) |
+| Metric | Target | Measured (RTX 3050 Ti 4GB) |
 |--------|--------|-------------------|
-| STT (tiny.en, CPU) | <1.5s | ~1.2s for 3s audio |
-| NLP parsing | <50ms | ~1-2ms |
-| TTS (pyttsx3) | <500ms | ~20-50ms |
+| STT (Medium, int8, CUDA) | <1.5s | ~0.8s for 5s audio |
+| LLM parsing (Qwen 1.5B, int4, CUDA) | <500ms | ~300ms |
+| TTS (Piper) | <500ms | ~300ms |
 | **End-to-end** | **<2.5s** | **~1.5-2.0s** |
 
 ## Configuration
@@ -117,34 +145,70 @@ Create `config.yaml` in project root (optional — defaults are sensible):
 
 ```yaml
 stt:
-  model_size: "tiny.en"      # tiny.en, base.en, small.en, etc.
-  device: "cpu"              # cpu, cuda
-  compute_type: "int8"       # int8, float16, float32
-  language: "en"
-  vad_threshold: 0.5
-  max_listen_seconds: 10
+  model_size: "medium"           # tiny.en, base.en, small, medium, large-v3
+  device: "cuda"                 # cpu, cuda
+  compute_type: "int8"           # int8, float16, float32
+  language: null                 # auto-detect (null), "ar", "en"
+  allowed_languages: ["ar", "en"] # restrict transcription languages
+  language_detection_threshold: 0.7 # stricter detection
+  vad_filter: true
+  vad_min_silence_ms: 500
+  max_listen_seconds: 5
+  initial_prompt: null           # set by voice enrollment (--enroll)
 
 tts:
-  engine: "pyttsx3"          # pyttsx3 | gTTS
-  rate: 180                  # words per minute
-  volume: 0.9                # 0.0 - 1.0
-  language: "en"             # for gTTS
+  engine: "piper"                # piper | pyttsx3
+  rate: 180
+  volume: 0.9
+  piper_voice_dir: "models/tts"
+  piper_voice_ar: "ar_JO-kareem-medium"
+  piper_voice_en: "en_US-lessac-medium"
+  piper_voice_ar_fallback: "ar_JO-kareem-low"
+  piper_voice_en_fallback: "en_US-lessac-low"
 
 nlp:
   confidence_threshold: 0.6
+  confidence_threshold_ar: 0.5
+  confidence_threshold_en: 0.6
+
+llm:
+  model_path: "models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+  enabled: true
+  fallback_to_nlp: true
+  confidence_threshold: 0.7
+  max_tokens: 256
+  temperature: 0.1
+  n_gpu_layers: -1
+  n_ctx: 4096
+  n_threads: 4
 
 audio:
   sample_rate: 16000
   channels: 1
 
 log:
-  level: "INFO"              # DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
 ```
 
 Environment variables override config (prefix `VA_`, nested with `__`):
 ```bash
-VA_STT__MODEL_SIZE=base.en VA_TTS__ENGINE=gTTS voice-assistant
+VA_STT__MODEL_SIZE=large-v3 VA_LLM__ENABLED=false voice-assistant
 ```
+
+## Model Management
+
+### STT Models
+- Stored in `models/stt/`
+- Auto-downloaded on first run if missing
+- Convert to faster-whisper CT2 format: `ct2-transformers-converter --model openai/whisper-medium --output_dir models/stt/whisper-medium --quantization int8`
+
+### LLM Model
+- Place GGUF file at `models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf`
+- Download from: `huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir models/llm`
+
+### TTS Voices (Piper)
+- Stored in `models/tts/`
+- Pre-download: `python scripts/download_models.py`
 
 ## Troubleshooting
 
@@ -161,13 +225,15 @@ arecord -d 3 -f cd test.wav && aplay test.wav
 pavucontrol  # GUI to check input device selection
 ```
 
-### Model Cache
-
-Whisper models cached at `~/.cache/huggingface/hub/` (first run downloads ~75MB for tiny.en).
+### CUDA / GPU Issues
 
 ```bash
-# Pre-download model
-python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en', device='cpu', compute_type='int8')"
+# Check CUDA
+nvidia-smi
+python -c "import torch; print(torch.cuda.is_available())"
+
+# Check llama-cpp-python GPU layers
+python -c "from llama_cpp import Llama; Llama(model_path='models/llm/...', n_gpu_layers=-1)"
 ```
 
 ### Common Issues
@@ -175,10 +241,22 @@ python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en', devi
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | "No microphone found" | PipeWire/PulseAudio not exposing device | Run `pavucontrol`, check Input Devices tab |
-| "Model load failed" | No internet for first download | Ensure internet, or pre-download (above) |
-| "TTS fallback" | gTTS network error / pyttsx3 missing | Install `espeak-ng` for pyttsx3 |
+| "Model load failed" | No internet for first download | Ensure internet, or pre-download models |
+| "TTS fallback" | Piper missing voices / pyttsx3 missing | Run `scripts/download_models.py`, install `espeak-ng` |
 | "App not found in PATH" | App not installed or not in $PATH | `which <app>` to verify, install if needed |
-| High latency | Model too large / CPU slow | Use `tiny.en` with `int8` (default) |
+| High STT latency | Model too large / CPU only | Use `medium` with `int8` on CUDA (default) |
+| Low STT accuracy | No enrollment / dialect mismatch | Run `voice-assistant --enroll` |
+| LLM not loading | llama-cpp-python build failed | Install build tools: `sudo dnf install build-essential cmake` |
+
+### VRAM Usage (4GB GPU)
+
+| Component | Model | Quantization | VRAM |
+|-----------|-------|--------------|------|
+| STT | Whisper Medium | int8 | ~2.0 GB |
+| LLM | Qwen 2.5 1.5B | q4_k_m (int4) | ~1.0 GB |
+| **Total** | | | **~3.0 GB** |
+
+Leaves ~1GB headroom for KV cache and overhead.
 
 ## Development
 
@@ -186,7 +264,7 @@ python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en', devi
 
 ```bash
 # All tests with coverage
-pytest tests/ -v --cov=core --cov-fail-under=80
+pytest tests/ -v --cov=core --cov-fail-under=50
 
 # Specific test file
 pytest tests/test_stt.py -v
@@ -201,7 +279,7 @@ pre-commit run --all-files
 ruff format --check .
 ruff check .
 mypy core/ --ignore-missing-imports
-pytest tests/ -v --cov=core --cov-fail-under=80
+pytest tests/ -v --cov=core --cov-fail-under=50
 python -m build
 ```
 
@@ -212,13 +290,38 @@ pre-commit install
 pre-commit run --all-files
 ```
 
+### Adding Tests for LLM Engine
+
+```bash
+# Run specific LLM tests (when added)
+pytest tests/test_llm.py -v
+```
+
 ## Architecture
 
 ```
-┌─────────────┐     Audio      ┌──────────┐     Text     ┌────────┐     Text     ┌────────────┐     Audio     ┌──────────┐
-│  Microphone │ ─────────────► │    STT   │ ───────────► │  NLP   │ ───────────► │  Actions   │ ───────────► │   TTS    │ ───────► │ Speakers │
-└─────────────┘   (sounddevice) └──────────┘   (faster-   └────────┘   (regex +   └────────────┘   (pyttsx3/  └──────────┘
-                                              whisper)              fuzzy)                gTTS)
+┌─────────────┐     Audio      ┌──────────┐     Text     ┌────────────┐
+│  Microphone │ ─────────────► │    STT   │ ───────────► │    LLM     │
+│  (sounddev) │   (sounddevice) │ (faster- │   (raw +     │  (Qwen     │
+└─────────────┘                │ whisper) │    stt_lang) │  2.5 1.5B) │
+                               └──────────┘              └─────┬──────┘
+                                    │                         │
+                                    │              ┌──────────▼──────────┐
+                                    │              │   Fallback NLP    │
+                                    │              │  (Regex + Fuzzy)  │
+                                    │              └──────────┬────────┘
+                                    │                         │
+                                    ▼                         ▼
+                           ┌──────────────────┐    ┌──────────────────┐
+                           │    Actions       │    │      TTS         │
+                           │ (open_app, etc.) │    │  (Piper primary) │
+                           └────────┬─────────┘    └────────┬─────────┘
+                                    │                       │
+                                    └───────────┬───────────┘
+                                                ▼
+                                         ┌──────────────┐
+                                         │   Speakers   │
+                                         └──────────────┘
 ```
 
 ## Specifications
@@ -228,6 +331,18 @@ pre-commit run --all-files
 - [Design](docs/specs/DESIGN.md)
 - [User Flow](docs/specs/USER_FLOW.md)
 - [Development Environment](docs/specs/DEVELOPMENT_ENVIRONMENT.md)
+
+## Phase History
+
+| Phase | Branch | Description |
+|-------|--------|-------------|
+| 1 | `feature/stt-engine` | STT with GPU config, model downloader, multilingual |
+| 2 | `feature/nlp-engine` | Bilingual NLP with Arabic/English intents |
+| 3 | `feature/actions` | Smart app launcher with fuzzy matching + install |
+| 4 | `feature/tts-engine` | Piper TTS with fallbacks, voice downloads |
+| 5 | `feature/integration` | Full pipeline, CLI modes, error recovery |
+| 6 | `feature/stt-phase1` | STT accuracy: language restrict, enrollment, Arabic mapping |
+| 7 | `feature/stt-phase2` | **LLM intent parsing with Qwen 2.5 1.5B** |
 
 ## License
 

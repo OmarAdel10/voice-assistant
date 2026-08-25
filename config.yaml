@@ -1,13 +1,13 @@
 # Voice Assistant Configuration
 
 stt:
-  model_size: "large-v3"
+  model_size: "medium"
   device: "cuda"
   compute_type: "int8"
   max_listen_seconds: 5
-  language: null  # auto-detect (was "ar" which forced Arabic)
-  allowed_languages: ["ar", "en"]  # restrict to Arabic and English only
-  language_detection_threshold: 0.7  # stricter detection (was 0.5)
+  language: null  # auto-detect
+  allowed_languages: ["ar", "en"]
+  language_detection_threshold: 0.7
   vad_threshold: 0.5
   model_dir: "models/stt"
   vad_filter: true
@@ -29,6 +29,18 @@ nlp:
   confidence_threshold: 0.6
   confidence_threshold_ar: 0.5
   confidence_threshold_en: 0.6
+
+llm:
+  model_path: "models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+  enabled: true
+  fallback_to_nlp: true
+  confidence_threshold: 0.7
+  max_tokens: 256
+  temperature: 0.1
+  n_gpu_layers: -1
+  n_ctx: 4096
+  n_threads: 4
+  verbose: false
 
 audio:
   sample_rate: 16000

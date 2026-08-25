@@ -13,6 +13,7 @@ import click
 from config.settings import Settings
 from core.actions import get_date, get_sysinfo, get_time, open_app, web_search
 from core.exceptions import ActionError, NLPError, STTError, TTSError
+from core.llm_engine import LLMEngine
 from core.nlp_engine import NLPEngine
 from core.stt_engine import STTEngine
 from core.tts_engine import TTSEngine
@@ -73,6 +74,7 @@ class VoiceAssistant:
         self._stt_engine: STTEngine | None = None
         self._nlp_engine: NLPEngine | None = None
         self._tts_engine: TTSEngine | None = None
+        self._llm_engine: LLMEngine | None = None
 
     @property
     def stt_engine(self) -> STTEngine:
@@ -121,6 +123,15 @@ class VoiceAssistant:
             )
         return self._tts_engine
 
+    @property
+    def llm_engine(self) -> LLMEngine | None:
+        """Lazy LLM engine initialization."""
+        if not self.settings.llm.enabled:
+            return None
+        if self._llm_engine is None:
+            self._llm_engine = LLMEngine(self.settings)
+        return self._llm_engine
+
     def _safe_say(self, text: str) -> None:
         """Safely speak text, suppressing any TTS errors."""
         try:
@@ -130,7 +141,7 @@ class VoiceAssistant:
             logger.error(f"[TTS Error] {e}")
 
     def process_text(self, text: str, lang: str | None = None) -> tuple[str, str]:
-        """Process text input through NLP and execute action.
+        """Process text input through LLM (primary) or NLP (fallback) and execute action.
 
         Args:
             text: User input text
@@ -139,6 +150,29 @@ class VoiceAssistant:
         Returns:
             Tuple of (response text, detected language)
         """
+        # 1. Try LLM first (primary parser)
+        if self.llm_engine and self.llm_engine.is_available():
+            try:
+                llm_result = self.llm_engine.parse_intent(text, lang)
+
+                if llm_result.confidence >= self.settings.llm.confidence_threshold:
+                    # LLM succeeded with high confidence
+                    logger.info(
+                        f"LLM: intent={llm_result.intent} | "
+                        f"confidence={llm_result.confidence:.2f} | "
+                        f"lang={llm_result.language}"
+                    )
+                    return self._execute_llm_intent(llm_result)
+
+                # Low confidence - log and fall back to NLP
+                logger.info(
+                    f"LLM low confidence ({llm_result.confidence:.2f}), falling back to NLP"
+                )
+
+            except Exception as e:
+                logger.warning(f"LLM parsing failed: {e}, falling back to NLP")
+
+        # 2. NLP Regex Fallback
         try:
             intent, entities, confidence = self.nlp_engine.parse(text, stt_language=lang)
 
@@ -154,45 +188,24 @@ class VoiceAssistant:
                 template = self.nlp_engine.get_response_template("unknown", detected_lang)
                 return template.format(text=text), detected_lang
 
-            logger.info(f"Intent: {intent} | Entities: {entities} | Confidence: {confidence:.2f}")
+            llm_available = (
+                self.llm_engine
+                and self.llm_engine.is_available()
+                and self.settings.llm.fallback_to_nlp
+            )
+            if llm_available:
+                assert self.llm_engine is not None
+                try:
+                    response_text = self.llm_engine.generate_response(
+                        intent, entities, detected_lang, success=True
+                    )
+                    if response_text:
+                        return self._execute_nlp_intent(intent, entities, detected_lang)
+                except Exception as e:
+                    logger.warning(f"LLM response generation failed: {e}")
 
-            # Detect language from NLP engine
-            detected_lang = self.nlp_engine._detect_language(text, lang)
-
-            # Execute action based on intent
-            if intent == "get_time":
-                return get_time(), detected_lang
-            elif intent == "get_date":
-                return get_date(), detected_lang
-            elif intent == "get_sys_info":
-                info = get_sysinfo()
-                cpu = info["cpu_percent"]
-                mem = info["memory_percent"]
-                disk = info["disk_percent"]
-                return f"CPU: {cpu:.1f}% | Memory: {mem:.1f}% | Disk: {disk:.1f}%", detected_lang
-            elif intent == "open_app":
-                app_name = entities.get("app")
-                if not app_name:
-                    # Fallback: infer app from transcribed text for common cases
-                    text_lower = text.lower()
-                    code_keywords = [
-                        "كود",
-                        "قوت",
-                        "code",
-                        "vscode",
-                        "visual studio",
-                        "في إس",
-                        "فيجوال",
-                    ]
-                    if any(w in text_lower for w in code_keywords):
-                        app_name = "code"
-                    else:
-                        return "Which app would you like me to open?", detected_lang
-                return open_app(app_name), detected_lang
-            elif intent == "web_search":
-                return web_search(entities["query"]), detected_lang
-            else:
-                return f"Unknown intent: {intent}", detected_lang
+            # NLP template fallback
+            return self._execute_nlp_intent(intent, entities, detected_lang)
 
         except (NLPError, ActionError) as e:
             logger.error(f"Processing failed: {e}")
@@ -200,6 +213,54 @@ class VoiceAssistant:
         except Exception as e:
             logger.exception(f"Unexpected error: {e}")
             return "An unexpected error occurred", lang or "en"
+
+    def _execute_llm_intent(self, llm_result) -> tuple[str, str]:
+        """Execute action based on LLM result and return LLM's response_text."""
+        intent = llm_result.intent
+        entities = llm_result.entities
+        response_lang = llm_result.language
+
+        if intent == "get_time" or intent == "get_date" or intent == "get_sys_info":
+            return llm_result.response_text, response_lang
+        elif intent == "open_app":
+            app_name = entities.get("app")
+            if not app_name:
+                return "Which app would you like me to open?", response_lang
+            result = open_app(app_name)
+            # Use LLM's response_text if it mentions the app, otherwise use action result
+            use_llm_text = app_name in llm_result.response_text
+            response = llm_result.response_text if use_llm_text else result
+            return response, response_lang
+        elif intent == "web_search":
+            query = entities.get("query", "")
+            if not query:
+                return "What would you like me to search for?", response_lang
+            return web_search(query), response_lang
+        else:
+            return llm_result.response_text, response_lang
+
+    def _execute_nlp_intent(self, intent: str, entities: dict, lang: str) -> tuple[str, str]:
+        """Execute action based on NLP result."""
+        if intent == "get_time":
+            return get_time(), lang
+        elif intent == "get_date":
+            return get_date(), lang
+        elif intent == "get_sys_info":
+            info = get_sysinfo()
+            cpu = info["cpu_percent"]
+            mem = info["memory_percent"]
+            disk = info["disk_percent"]
+            return f"CPU: {cpu:.1f}% | Memory: {mem:.1f}% | Disk: {disk:.1f}%", lang
+        elif intent == "open_app":
+            app_name = entities.get("app")
+            if not app_name:
+                # Fallback: infer app from transcribed text for common cases
+                return "Which app would you like me to open?", lang
+            return open_app(app_name), lang
+        elif intent == "web_search":
+            return web_search(entities["query"]), lang
+        else:
+            return f"Unknown intent: {intent}", lang
 
     def run_once_voice(self) -> None:
         """Single voice interaction: listen -> transcribe -> process -> speak."""
