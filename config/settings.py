@@ -109,6 +109,28 @@ class LogConfig(BaseModel):
     )
 
 
+class LLMConfig(BaseModel):
+    """LLM configuration for intent parsing and response generation."""
+
+    model_config = {"frozen": True}
+
+    model_path: str = Field(
+        default="models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        description="Path to GGUF model file",
+    )
+    enabled: bool = Field(default=True, description="Enable LLM intent parsing")
+    fallback_to_nlp: bool = Field(default=True, description="Fall back to NLP regex on LLM failure")
+    confidence_threshold: float = Field(
+        default=0.7, ge=0.0, le=1.0, description="Minimum confidence for LLM intent"
+    )
+    max_tokens: int = Field(default=256, gt=0, description="Max tokens for generation")
+    temperature: float = Field(default=0.1, ge=0.0, le=1.0, description="Sampling temperature")
+    n_gpu_layers: int = Field(default=-1, description="GPU layers (-1 = all)")
+    n_ctx: int = Field(default=4096, gt=0, description="Context window size")
+    n_threads: int = Field(default=4, gt=0, description="CPU threads for inference")
+    verbose: bool = Field(default=False, description="Verbose llama.cpp output")
+
+
 class Settings(BaseSettings):
     """Application settings loaded from YAML with environment override."""
 
@@ -122,6 +144,7 @@ class Settings(BaseSettings):
     stt: STTConfig = Field(default_factory=STTConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
     nlp: NLPConfig = Field(default_factory=NLPConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     log: LogConfig = Field(default_factory=LogConfig)
 
