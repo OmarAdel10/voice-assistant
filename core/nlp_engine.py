@@ -24,11 +24,20 @@ logger = logging.getLogger(__name__)
 class NLPEngine:
     """Natural Language Processing engine for intent classification."""
 
-    def __init__(self, intents_path: str | Path = "config/intents.json") -> None:
+    def __init__(
+        self,
+        intents_path: str | Path = "config/intents.json",
+        confidence_threshold: float = 0.6,
+        confidence_threshold_ar: float | None = None,
+        confidence_threshold_en: float | None = None,
+    ) -> None:
         """Initialize NLP engine by loading intents from JSON.
 
         Args:
             intents_path: Path to intents.json file
+            confidence_threshold: Default confidence threshold for all languages
+            confidence_threshold_ar: Arabic-specific threshold (overrides default if set)
+            confidence_threshold_en: English-specific threshold (overrides default if set)
 
         Raises:
             NLPError: If intents file cannot be loaded or parsed
@@ -39,6 +48,13 @@ class NLPEngine:
         self._compiled_patterns_ar: list[tuple[str, list[Pattern[str]], list[str]]] = []
         self._response_templates_en: dict[str, str] = {}
         self._response_templates_ar: dict[str, str] = {}
+        self._confidence_threshold = confidence_threshold
+        self._confidence_threshold_ar = (
+            confidence_threshold_ar if confidence_threshold_ar is not None else confidence_threshold
+        )
+        self._confidence_threshold_en = (
+            confidence_threshold_en if confidence_threshold_en is not None else confidence_threshold
+        )
         self._load_intents()
 
     def _load_intents(self) -> None:
@@ -118,21 +134,20 @@ class NLPEngine:
     def _detect_language(self, text: str, stt_language: str | None = None) -> str:
         """Detect language from STT output or langdetect fallback.
 
-        If STT language and text language differ, trust text language
-        (more reliable for intent matching than audio-based STT guess).
+        For short commands, STT language is more reliable than langdetect.
         """
-        # STT language takes priority IF it matches text language
+        # STT language takes priority for short text (langdetect unreliable < 50 chars)
         if stt_language:
             stt_lang = "ar" if stt_language.startswith("ar") else "en"
-            # Verify with langdetect
-            if detect:
+            # Only verify with langdetect for longer text (> 20 chars)
+            if detect and len(text) > 20:
                 try:
                     text_lang = detect(text)
                     text_lang = "ar" if text_lang == "ar" else "en"
                     # If they match, use STT language
                     if text_lang == stt_lang:
                         return stt_lang
-                    # If they differ, prefer text language (more reliable for intent matching)
+                    # If they differ and text is long enough, prefer text language
                     logger.warning(
                         f"STT language ({stt_lang}) != text language "
                         f"({text_lang}), using text language"
@@ -140,15 +155,26 @@ class NLPEngine:
                     return text_lang
                 except Exception:
                     pass
+            # For short text, trust STT language
             return stt_lang
 
-        # Fallback to langdetect
+        # Fallback to langdetect (only if no STT language)
         if detect:
             try:
                 lang = detect(text)
-                return "ar" if lang == "ar" else "en"
+                if lang == "ar":
+                    return "ar"
+                # langdetect often misclassifies short Arabic as Urdu/etc.
+                # Check for Arabic script characters as backup
+                if any("\u0600" <= c <= "\u06ff" for c in text):
+                    return "ar"
+                return "en"
             except Exception:
                 pass
+
+        # Final fallback: check for Arabic script
+        if any("\u0600" <= c <= "\u06ff" for c in text):
+            return "ar"
 
         # Default to English
         return "en"
@@ -232,7 +258,11 @@ class NLPEngine:
                 f"Confidence: {fuzzy_score:.2f} (fuzzy) | Lang: {lang}"
             )
 
-            if fuzzy_score >= 0.6:
+            # Use per-language threshold
+            threshold = (
+                self._confidence_threshold_ar if lang == "ar" else self._confidence_threshold_en
+            )
+            if fuzzy_score >= threshold:
                 return fuzzy_intent, {}, fuzzy_score
 
             return "unknown", {}, 0.0

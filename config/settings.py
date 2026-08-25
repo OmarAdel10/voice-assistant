@@ -18,8 +18,16 @@ class STTConfig(BaseModel):
     model_config = {"frozen": True}
 
     model_size: str = Field(default="large-v3", description="Whisper model size")
-    language: str = Field(
-        default="ar", description="Language code (ar for Arabic, None for auto-detect)"
+    language: str | None = Field(
+        default=None,
+        description="Language code (ar for Arabic, en for English, None for auto-detect)",
+    )
+    allowed_languages: list[str] = Field(
+        default_factory=lambda: ["ar", "en"],
+        description="Allowed language codes for transcription (restricts detection)",
+    )
+    language_detection_threshold: float = Field(
+        default=0.7, ge=0.0, le=1.0, description="Minimum probability for language detection"
     )
     device: str = Field(default="cuda", description="Device to run on (cpu, cuda)")
     compute_type: str = Field(
@@ -32,6 +40,9 @@ class STTConfig(BaseModel):
     max_listen_seconds: int = Field(default=5, gt=0, description="Maximum recording duration")
     vad_filter: bool = Field(default=True, description="Enable VAD filtering")
     vad_min_silence_ms: int = Field(default=500, gt=0, description="Min silence duration for VAD")
+    initial_prompt: str | None = Field(
+        default=None, description="Speaker adaptation prompt from voice enrollment"
+    )
 
 
 class TTSConfig(BaseModel):
@@ -60,7 +71,22 @@ class NLPConfig(BaseModel):
     model_config = {"frozen": True}
 
     confidence_threshold: float = Field(
-        default=0.6, ge=0.0, le=1.0, description="Intent matching confidence threshold"
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Intent matching confidence threshold (default for all languages)",
+    )
+    confidence_threshold_ar: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Arabic intent matching confidence threshold (lower for dialect support)",
+    )
+    confidence_threshold_en: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="English intent matching confidence threshold",
     )
 
 

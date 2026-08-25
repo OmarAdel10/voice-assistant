@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import signal
 import sys
@@ -18,6 +19,42 @@ from core.tts_engine import TTSEngine
 
 logger = logging.getLogger(__name__)
 
+# Enrollment file path
+ENROLLMENT_DIR = Path.home() / ".config" / "voice-assistant"
+ENROLLMENT_FILE = ENROLLMENT_DIR / "enrollment.json"
+
+ENROLLMENT_PHRASES = [
+    "مرحبا، كيف حالك؟",
+    "افتح الكود من فضلك",
+    "ما الوقت الآن؟",
+    "Hello, how are you?",
+    "Open the browser please",
+    "What time is it?",
+]
+
+
+def load_enrollment() -> str | None:
+    """Load enrollment prompt from file."""
+    try:
+        if ENROLLMENT_FILE.exists():
+            data = json.loads(ENROLLMENT_FILE.read_text(encoding="utf-8"))
+            return data.get("initial_prompt")
+    except Exception as e:
+        logger.warning(f"Failed to load enrollment: {e}")
+    return None
+
+
+def save_enrollment(prompt: str) -> None:
+    """Save enrollment prompt to file."""
+    try:
+        ENROLLMENT_DIR.mkdir(parents=True, exist_ok=True)
+        data = {"initial_prompt": prompt}
+        ENROLLMENT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info(f"Enrollment saved to {ENROLLMENT_FILE}")
+    except Exception as e:
+        logger.error(f"Failed to save enrollment: {e}")
+        raise
+
 
 class VoiceAssistant:
     """Main Voice Assistant application class."""
@@ -30,6 +67,7 @@ class VoiceAssistant:
         """
         self.settings = settings
         self._running = False
+        self._enrollment_prompt = load_enrollment()
 
         # Initialize engines lazily
         self._stt_engine: STTEngine | None = None
@@ -40,6 +78,8 @@ class VoiceAssistant:
     def stt_engine(self) -> STTEngine:
         """Lazy STT engine initialization."""
         if self._stt_engine is None:
+            # Use enrollment prompt if available, otherwise fall back to config
+            initial_prompt = self._enrollment_prompt or self.settings.stt.initial_prompt
             self._stt_engine = STTEngine(
                 model_size=self.settings.stt.model_size,
                 device=self.settings.stt.device,
@@ -47,8 +87,11 @@ class VoiceAssistant:
                 sample_rate=self.settings.audio.sample_rate,
                 model_dir=self.settings.stt.model_dir,
                 language=self.settings.stt.language,
+                allowed_languages=self.settings.stt.allowed_languages,
+                language_detection_threshold=self.settings.stt.language_detection_threshold,
                 vad_filter=self.settings.stt.vad_filter,
                 vad_min_silence_ms=self.settings.stt.vad_min_silence_ms,
+                initial_prompt=initial_prompt,
             )
         return self._stt_engine
 
@@ -56,7 +99,11 @@ class VoiceAssistant:
     def nlp_engine(self) -> NLPEngine:
         """Lazy NLP engine initialization."""
         if self._nlp_engine is None:
-            self._nlp_engine = NLPEngine()
+            self._nlp_engine = NLPEngine(
+                confidence_threshold=self.settings.nlp.confidence_threshold,
+                confidence_threshold_ar=self.settings.nlp.confidence_threshold_ar,
+                confidence_threshold_en=self.settings.nlp.confidence_threshold_en,
+            )
         return self._nlp_engine
 
     @property
@@ -95,10 +142,17 @@ class VoiceAssistant:
         try:
             intent, entities, confidence = self.nlp_engine.parse(text, stt_language=lang)
 
-            if intent == "unknown" or confidence < self.settings.nlp.confidence_threshold:
+            # Use per-language threshold for unknown check
+            detected_lang = lang or "en"
+            threshold = (
+                self.settings.nlp.confidence_threshold_ar
+                if detected_lang == "ar"
+                else self.settings.nlp.confidence_threshold_en
+            )
+            if intent == "unknown" or confidence < threshold:
                 # Return localized "didn't understand" message
-                template = self.nlp_engine.get_response_template("unknown", lang or "en")
-                return template.format(text=text), lang or "en"
+                template = self.nlp_engine.get_response_template("unknown", detected_lang)
+                return template.format(text=text), detected_lang
 
             logger.info(f"Intent: {intent} | Entities: {entities} | Confidence: {confidence:.2f}")
 
@@ -117,7 +171,24 @@ class VoiceAssistant:
                 disk = info["disk_percent"]
                 return f"CPU: {cpu:.1f}% | Memory: {mem:.1f}% | Disk: {disk:.1f}%", detected_lang
             elif intent == "open_app":
-                return open_app(entities["app"]), detected_lang
+                app_name = entities.get("app")
+                if not app_name:
+                    # Fallback: infer app from transcribed text for common cases
+                    text_lower = text.lower()
+                    code_keywords = [
+                        "كود",
+                        "قوت",
+                        "code",
+                        "vscode",
+                        "visual studio",
+                        "في إس",
+                        "فيجوال",
+                    ]
+                    if any(w in text_lower for w in code_keywords):
+                        app_name = "code"
+                    else:
+                        return "Which app would you like me to open?", detected_lang
+                return open_app(app_name), detected_lang
             elif intent == "web_search":
                 return web_search(entities["query"]), detected_lang
             else:
@@ -163,7 +234,8 @@ class VoiceAssistant:
     def run_once_text(self, text: str) -> None:
         """Single text interaction: process -> speak."""
         try:
-            response, response_lang = self.process_text(text)
+            # For text mode, we don't have STT language, so let NLP detect
+            response, response_lang = self.process_text(text, lang=None)
             logger.info(f"Response: {response}")
             self.tts_engine.say(response, lang=response_lang)
         except TTSError as e:
@@ -198,6 +270,77 @@ class VoiceAssistant:
         logger.info("Voice assistant stopped")
 
 
+def run_enrollment(settings: Settings) -> None:
+    """Run voice enrollment process."""
+    click.echo("\n🎤 Voice Enrollment")
+    click.echo("=" * 50)
+    click.echo("Please speak each phrase clearly when prompted.")
+    click.echo("Press Enter when ready to record each phrase.\n")
+
+    # Create STT engine for enrollment (without initial_prompt to avoid circular dependency)
+    stt_engine = STTEngine(
+        model_size=settings.stt.model_size,
+        device=settings.stt.device,
+        compute_type=settings.stt.compute_type,
+        sample_rate=settings.audio.sample_rate,
+        model_dir=settings.stt.model_dir,
+        language=None,
+        allowed_languages=settings.stt.allowed_languages,
+        language_detection_threshold=settings.stt.language_detection_threshold,
+        vad_filter=settings.stt.vad_filter,
+        vad_min_silence_ms=settings.stt.vad_min_silence_ms,
+        initial_prompt=None,
+    )
+
+    all_transcriptions = []
+
+    for i, phrase in enumerate(ENROLLMENT_PHRASES, 1):
+        click.echo(f"Phrase {i}/{len(ENROLLMENT_PHRASES)}:")
+        click.echo(f'  📝 "{phrase}"')
+        click.echo("  Press Enter to start recording (5 seconds)...")
+        click.prompt("", prompt_suffix="", show_default=False)
+
+        try:
+            click.echo("  🔴 Recording...")
+            audio = stt_engine.record_audio(settings.stt.max_listen_seconds)
+            click.echo("  🎙️  Transcribing...")
+            text, lang = stt_engine.transcribe(audio)
+
+            if text:
+                click.echo(f'  ✅ Heard: "{text}" (lang: {lang})')
+                all_transcriptions.append(text)
+            else:
+                click.echo("  ⚠️  No speech detected, skipping...")
+
+        except Exception as e:
+            click.echo(f"  ❌ Error: {e}")
+            logger.error(f"Enrollment error on phrase {i}: {e}")
+
+        click.echo("")
+
+    if not all_transcriptions:
+        click.echo("❌ No successful transcriptions. Enrollment cancelled.")
+        return
+
+    # Create initial_prompt from all transcriptions
+    initial_prompt = " ".join(all_transcriptions)
+
+    click.echo("=" * 50)
+    click.echo(f'📋 Combined prompt: "{initial_prompt}"')
+    click.echo("")
+
+    if click.confirm("Save this enrollment?", default=True):
+        try:
+            save_enrollment(initial_prompt)
+            click.echo("✅ Enrollment saved successfully!")
+            click.echo(f"   File: {ENROLLMENT_FILE}")
+            click.echo("\n💡 Restart voice-assistant to use the new enrollment.")
+        except Exception as e:
+            click.echo(f"❌ Failed to save enrollment: {e}")
+    else:
+        click.echo("Enrollment cancelled.")
+
+
 @click.command()
 @click.option(
     "--listen",
@@ -216,9 +359,22 @@ class VoiceAssistant:
     default=False,
     help="List available intents and exit",
 )
+@click.option(
+    "--enroll",
+    "do_enroll",
+    is_flag=True,
+    default=False,
+    help="Run voice enrollment for speaker adaptation",
+)
 @click.option("--version", is_flag=True, default=False, help="Show version and exit")
 @click.help_option("-h", "--help")
-def cli(mode: str, text_input: str | None, list_intents: bool, version: bool) -> None:
+def cli(
+    mode: str,
+    text_input: str | None,
+    list_intents: bool,
+    do_enroll: bool,
+    version: bool,
+) -> None:
     """Voice Assistant - Offline-first voice assistant for academic field training.
 
     Examples:
@@ -226,6 +382,7 @@ def cli(mode: str, text_input: str | None, list_intents: bool, version: bool) ->
       voice-assistant --once       # Single voice interaction
       voice-assistant --once --text "what time is it"  # Text input
       voice-assistant --list-intents  # Show available commands
+      voice-assistant --enroll     # Run voice enrollment
     """
     if version:
         click.echo("Voice Assistant 0.1.0")
@@ -242,7 +399,11 @@ def cli(mode: str, text_input: str | None, list_intents: bool, version: bool) ->
     )
 
     if list_intents:
-        nlp = NLPEngine()
+        nlp = NLPEngine(
+            confidence_threshold=settings.nlp.confidence_threshold,
+            confidence_threshold_ar=settings.nlp.confidence_threshold_ar,
+            confidence_threshold_en=settings.nlp.confidence_threshold_en,
+        )
         click.echo("Available intents:")
         for intent in nlp.patterns:
             name = intent["name"]
@@ -250,6 +411,10 @@ def cli(mode: str, text_input: str | None, list_intents: bool, version: bool) ->
             if len(intent["patterns"]) > 3:
                 patterns += "..."
             click.echo(f"  {name}: {patterns}")
+        return
+
+    if do_enroll:
+        run_enrollment(settings)
         return
 
     # Create and run assistant

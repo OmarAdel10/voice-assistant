@@ -23,7 +23,7 @@ class TestSettings:
 
             # Check defaults from DESIGN.md
             assert settings.stt.model_size == "large-v3"
-            assert settings.stt.language == "ar"
+            assert settings.stt.language is None  # auto-detect
             assert settings.stt.device == "cuda"
             assert settings.stt.compute_type == "float16"
             assert settings.stt.model_dir == "models/stt"
@@ -108,7 +108,7 @@ class TestSettings:
             assert settings.stt.model_size == "small.en"
             assert settings.tts.engine == "pyttsx3"
             # Default values preserved
-            assert settings.stt.language == "ar"
+            assert settings.stt.language is None  # auto-detect
             assert settings.stt.vad_threshold == 0.5
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9

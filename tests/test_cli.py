@@ -36,6 +36,8 @@ def create_mock_settings() -> Mock:
     # NLP settings
     mock_settings.nlp = Mock()
     mock_settings.nlp.confidence_threshold = 0.6
+    mock_settings.nlp.confidence_threshold_ar = 0.5
+    mock_settings.nlp.confidence_threshold_en = 0.6
 
     # Audio settings
     mock_settings.audio = Mock()
