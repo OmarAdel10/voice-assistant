@@ -8,11 +8,13 @@ stt:
   language: null  # auto-detect
   allowed_languages: ["ar", "en"]
   language_detection_threshold: 0.7
-  vad_threshold: 0.5
+  vad_threshold: 0.3
   model_dir: "models/stt"
-  vad_filter: true
-  vad_min_silence_ms: 500
+  vad_filter: false
+  vad_min_silence_ms: 300
   initial_prompt: null  # set by voice enrollment (--enroll)
+  input_gain: 0.15
+  auto_gain: false
 
 tts:
   engine: "piper"

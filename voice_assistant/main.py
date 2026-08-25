@@ -94,6 +94,7 @@ class VoiceAssistant:
                 vad_filter=self.settings.stt.vad_filter,
                 vad_min_silence_ms=self.settings.stt.vad_min_silence_ms,
                 initial_prompt=initial_prompt,
+                input_gain=self.settings.stt.input_gain,
             )
         return self._stt_engine
 
@@ -402,6 +403,65 @@ def run_enrollment(settings: Settings) -> None:
         click.echo("Enrollment cancelled.")
 
 
+def run_mic_test(settings: Settings, duration: float, gain: float | None) -> None:
+    """Run microphone test and display audio quality metrics."""
+    click.echo("\n🎤 Microphone Test")
+    click.echo("=" * 50)
+    click.echo(f"Duration: {duration}s")
+    if gain is not None:
+        click.echo(f"Gain override: {gain}")
+    click.echo("")
+
+    # Create STT engine for test (without initial_prompt to avoid circular dependency)
+    stt_engine = STTEngine(
+        model_size=settings.stt.model_size,
+        device=settings.stt.device,
+        compute_type=settings.stt.compute_type,
+        sample_rate=settings.audio.sample_rate,
+        model_dir=settings.stt.model_dir,
+        language=None,
+        allowed_languages=settings.stt.allowed_languages,
+        language_detection_threshold=settings.stt.language_detection_threshold,
+        vad_filter=settings.stt.vad_filter,
+        vad_min_silence_ms=settings.stt.vad_min_silence_ms,
+        initial_prompt=None,
+    )
+
+    click.echo("🔴 Recording...")
+    try:
+        result = stt_engine.test_microphone(duration=duration, gain=gain)
+
+        if "error" in result:
+            click.echo(f"❌ Error: {result['error']}")
+            return
+
+        click.echo("")
+        click.echo("📊 Results")
+        click.echo("-" * 50)
+        click.echo(f"Duration:     {result['duration']}s")
+        click.echo(f"RMS Level:    {result['rms']:.4f}")
+        click.echo(f"Peak Level:   {result['peak']:.4f}")
+        click.echo(
+            f"Clipping:     {result['clipped_samples']}/{result['total_samples']} "
+            f"({result['clipping_percentage']:.1f}%)"
+        )
+        click.echo(
+            f"Language:     {result['detected_language']} (p={result.get('confidence', 0):.2f})"
+        )
+        click.echo(f'Transcription: "{result["transcription"]}"')
+        click.echo("")
+        click.echo(result["assessment"])
+        if result["suggested_gain"] != settings.stt.input_gain:
+            click.echo(
+                f"💡 Suggested input_gain: {result['suggested_gain']:.3f} "
+                f"(current: {settings.stt.input_gain})"
+            )
+
+    except Exception as e:
+        click.echo(f"❌ Test failed: {e}")
+        logger.error(f"Mic test failed: {e}")
+
+
 @click.command()
 @click.option(
     "--listen",
@@ -427,6 +487,25 @@ def run_enrollment(settings: Settings) -> None:
     default=False,
     help="Run voice enrollment for speaker adaptation",
 )
+@click.option(
+    "--test-mic",
+    "do_test_mic",
+    is_flag=True,
+    default=False,
+    help="Test microphone audio quality and transcription",
+)
+@click.option(
+    "--test-mic-duration",
+    type=float,
+    default=3.0,
+    help="Duration for microphone test in seconds",
+)
+@click.option(
+    "--test-mic-gain",
+    type=float,
+    default=None,
+    help="Override input gain for microphone test",
+)
 @click.option("--version", is_flag=True, default=False, help="Show version and exit")
 @click.help_option("-h", "--help")
 def cli(
@@ -434,6 +513,9 @@ def cli(
     text_input: str | None,
     list_intents: bool,
     do_enroll: bool,
+    do_test_mic: bool,
+    test_mic_duration: float,
+    test_mic_gain: float | None,
     version: bool,
 ) -> None:
     """Voice Assistant - Offline-first voice assistant for academic field training.
@@ -476,6 +558,10 @@ def cli(
 
     if do_enroll:
         run_enrollment(settings)
+        return
+
+    if do_test_mic:
+        run_mic_test(settings, test_mic_duration, test_mic_gain)
         return
 
     # Create and run assistant

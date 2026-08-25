@@ -43,6 +43,12 @@ class STTConfig(BaseModel):
     initial_prompt: str | None = Field(
         default=None, description="Speaker adaptation prompt from voice enrollment"
     )
+    input_gain: float = Field(
+        default=1.0, ge=0.01, le=10.0, description="Input volume gain (0.1-1.0 to prevent clipping)"
+    )
+    auto_gain: bool = Field(
+        default=False, description="Automatically adjust input gain based on audio levels"
+    )
 
 
 class TTSConfig(BaseModel):
