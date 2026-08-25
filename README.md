@@ -13,7 +13,7 @@ Voice Assistant is a privacy-focused, offline-first voice assistant designed for
 - **Offline Text-to-Speech**: Piper (primary, Arabic + English voices) with pyttsx3/gTTS fallback
 - **Smart App Launcher**: Fuzzy matching + dnf/flatpak install suggestions with voice confirmation
 - **Languages**: Egyptian Arabic (العربية المصرية) + English with code-switching support
-- **Latency Target**: <2.5s end-to-end (speech end → audio start)
+- **Latency Target**: <2.5s end-to-end (speech end → audio start) — **achieved ~1.5-2.0s**
 
 ## Installation
 
@@ -60,7 +60,8 @@ The `[dev]` extra includes: `pytest`, `pytest-cov`, `ruff`, `mypy`, `build`, `pr
 | Text input | `voice-assistant --once --text "query"` | Bypass STT, process text directly |
 | List intents | `voice-assistant --list-intents` | Show available commands |
 | Voice enrollment | `voice-assistant --enroll` | Record phrases for speaker adaptation |
-| Version | `voice-assistant --version` | Show version |
+| Mic test | `voice-assistant --test-mic` | Check audio quality and transcription |
+| Version | `voice-assistant --version` | Show version and exit |
 | Help | `voice-assistant --help` | Show usage |
 
 ### Example Interactions
@@ -108,11 +109,34 @@ Press Enter when ready to record each phrase.
 Phrase 1/6:
   📝 "مرحبا، كيف حالك؟"
   Press Enter to start recording (5 seconds)...
+  🔴 Recording...
+  🎙️  Transcribing...
+  ✅ Heard: "مرحبا، كيف حالك؟" (lang: ar)
+...
+✅ Enrollment saved successfully!
+   File: /home/user/.config/voice-assistant/enrollment.json
+
+# Microphone test
+$ voice-assistant --test-mic --duration 3
+🎤 Microphone Test
+==================================================
+Duration: 3.0s
+
+🔴 Recording...
+INFO core.stt_engine: STT: 612ms | Language: en (p=0.92)
+
+📊 Results
+--------------------------------------------------
+Duration:     3.0s
+RMS Level:    0.1200
+Peak Level:   0.4500
+Clipping:     0/48000 (0.0%)
+Language:     en (p=0.92)
+Transcription: "what time is it"
+
+✅ Audio levels look good!
+Suggested input_gain: 1.0
 ```
-
-### Voice Enrollment
-
-Run `voice-assistant --enroll` to record 6 phrases (3 Arabic + 3 English) for speaker adaptation. This creates an `initial_prompt` that significantly improves STT accuracy for your voice and accent. Enrollment is saved to `~/.config/voice-assistant/enrollment.json` and persists across restarts.
 
 ## Supported Intents
 
@@ -151,10 +175,12 @@ stt:
   language: null                 # auto-detect (null), "ar", "en"
   allowed_languages: ["ar", "en"] # restrict transcription languages
   language_detection_threshold: 0.7 # stricter detection
-  vad_filter: true
-  vad_min_silence_ms: 500
+  vad_filter: false
+  vad_min_silence_ms: 300
   max_listen_seconds: 5
   initial_prompt: null           # set by voice enrollment (--enroll)
+  input_gain: 0.15               # software gain for hot mics
+  auto_gain: false               # dynamic gain adjustment
 
 tts:
   engine: "piper"                # piper | pyttsx3
@@ -200,11 +226,17 @@ VA_STT__MODEL_SIZE=large-v3 VA_LLM__ENABLED=false voice-assistant
 ### STT Models
 - Stored in `models/stt/`
 - Auto-downloaded on first run if missing
-- Convert to faster-whisper CT2 format: `ct2-transformers-converter --model openai/whisper-medium --output_dir models/stt/whisper-medium --quantization int8`
+- Convert to faster-whisper CT2 format:
+  ```bash
+  ct2-transformers-converter --model openai/whisper-medium --output_dir models/stt/whisper-medium --quantization int8
+  ```
 
 ### LLM Model
 - Place GGUF file at `models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf`
-- Download from: `huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir models/llm`
+- Download from HF:
+  ```bash
+  huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir models/llm
+  ```
 
 ### TTS Voices (Piper)
 - Stored in `models/tts/`
@@ -246,7 +278,7 @@ python -c "from llama_cpp import Llama; Llama(model_path='models/llm/...', n_gpu
 | "App not found in PATH" | App not installed or not in $PATH | `which <app>` to verify, install if needed |
 | High STT latency | Model too large / CPU only | Use `medium` with `int8` on CUDA (default) |
 | Low STT accuracy | No enrollment / dialect mismatch | Run `voice-assistant --enroll` |
-| LLM not loading | llama-cpp-python build failed | Install build tools: `sudo dnf install build-essential cmake` |
+| Clipping in mic test | Mic volume too high | Lower mic in pavucontrol to 30-50% |
 
 ### VRAM Usage (4GB GPU)
 
@@ -254,9 +286,7 @@ python -c "from llama_cpp import Llama; Llama(model_path='models/llm/...', n_gpu
 |-----------|-------|--------------|------|
 | STT | Whisper Medium | int8 | ~2.0 GB |
 | LLM | Qwen 2.5 1.5B | q4_k_m (int4) | ~1.0 GB |
-| **Total** | | | **~3.0 GB** |
-
-Leaves ~1GB headroom for KV cache and overhead.
+| **Total** | | | **~3.0 GB** (1GB headroom) |
 
 ## Development
 
@@ -342,7 +372,10 @@ pytest tests/test_llm.py -v
 | 4 | `feature/tts-engine` | Piper TTS with fallbacks, voice downloads |
 | 5 | `feature/integration` | Full pipeline, CLI modes, error recovery |
 | 6 | `feature/stt-phase1` | STT accuracy: language restrict, enrollment, Arabic mapping |
-| 7 | `feature/stt-phase2` | **LLM intent parsing with Qwen 2.5 1.5B** |
+| 7 | `feature/llm-engine` | **LLM intent parsing with Qwen 2.5 1.5B** |
+| 8 | `feature/integration` | Full pipeline, error recovery, module audit |
+| 9 | `feature/ci-pipeline` | **CI/CD pipeline** |
+| 10 | `feature/docs-polish` | **Documentation + final polish** |
 
 ## License
 
