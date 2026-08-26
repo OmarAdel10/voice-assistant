@@ -59,6 +59,7 @@ class VoiceAssistant:
                 vad_min_silence_ms=self.settings.stt.vad_min_silence_ms,
                 initial_prompt=initial_prompt,
                 input_gain=self.settings.stt.input_gain,
+                offline=self.settings.stt.offline,
             )
         return self._stt_engine
 

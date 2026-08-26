@@ -53,6 +53,10 @@ class STTConfig(BaseModel):
     auto_gain: bool = Field(
         default=False, description="Automatically adjust input gain based on audio levels"
     )
+    offline: bool = Field(
+        default=False,
+        description="Require a locally cached whisper snapshot; never contact the Hub",
+    )
 
 
 class TTSConfig(BaseModel):

@@ -39,6 +39,7 @@ class STTEngine:
         initial_prompt: str | None = None,
         input_gain: float = 1.0,
         auto_gain: bool = False,
+        offline: bool = False,
     ) -> None:
         """Initialize STT engine (lazy model loading).
 
@@ -56,6 +57,8 @@ class STTEngine:
             initial_prompt: Speaker adaptation prompt from voice enrollment
             input_gain: Input volume gain (0.1-1.0 to prevent clipping)
             auto_gain: Automatically adjust input gain based on audio levels
+            offline: Never contact the Hugging Face Hub; require a local
+                model snapshot and fail fast when none is available
         """
         self._model_size = model_size
         self._device = device
@@ -70,6 +73,7 @@ class STTEngine:
         self._initial_prompt = initial_prompt
         self._input_gain = max(0.01, min(10.0, input_gain))
         self._auto_gain = auto_gain
+        self._offline = offline
         # Auto-gain state
         self._target_rms = 0.15  # Target RMS level
         self._gain_adjustment_factor = 1.2  # How aggressively to adjust
@@ -112,6 +116,31 @@ class STTEngine:
         """Get the local model path."""
         return self._model_dir / self._model_size
 
+    def _resolve_local_snapshot(self) -> Path | None:
+        """Find a fully-downloaded local snapshot of the configured model.
+
+        Checks two layouts under the model directory:
+          1. A plain folder named after the model size containing model.bin
+             (e.g. models/stt/large-v3/).
+          2. A Hugging Face cache directory downloaded via download_root
+             (e.g. models/stt/models--Systran--faster-whisper-medium/
+             snapshots/<revision>/).
+
+        Returns:
+            Path to a directory containing model.bin, or None.
+        """
+        plain = self._model_dir / self._model_size
+        if (plain / "model.bin").is_file():
+            return plain
+
+        repo_dir = self._model_dir / f"models--Systran--faster-whisper-{self._model_size}"
+        snapshots = repo_dir / "snapshots"
+        if snapshots.is_dir():
+            for entry in sorted(snapshots.iterdir()):
+                if entry.is_dir() and (entry / "model.bin").is_file():
+                    return entry
+        return None
+
     def load_model(self) -> None:
         """Load the Whisper model (idempotent)."""
         if self._model is not None:
@@ -124,15 +153,33 @@ class STTEngine:
             logger.info(
                 f"Loading STT model: {self._model_size} on {self._device} ({self._compute_type})"
             )
-            # Let faster-whisper handle its own Hugging Face cache
-            # download_root tells it where to cache; it will reuse existing cache
-            self._model = WhisperModel(
-                self._model_size,
-                device=self._device,
-                compute_type=self._compute_type,
-                download_root=str(self._model_dir),
-            )
+            snapshot = self._resolve_local_snapshot()
+            if snapshot is not None:
+                # A resolved local path makes faster-whisper skip all
+                # Hugging Face Hub traffic (revision checks included).
+                logger.info(f"Using local model snapshot: {snapshot}")
+                self._model = WhisperModel(
+                    str(snapshot),
+                    device=self._device,
+                    compute_type=self._compute_type,
+                )
+            elif self._offline:
+                raise STTError(
+                    f"Offline mode enabled but no local snapshot of "
+                    f"'{self._model_size}' found in {self._model_dir}"
+                )
+            else:
+                # Fall back to hub resolution by name; download_root tells
+                # faster-whisper where to cache so later runs resolve locally.
+                self._model = WhisperModel(
+                    self._model_size,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                    download_root=str(self._model_dir),
+                )
             logger.info("STT model loaded successfully")
+        except STTError:
+            raise
         except Exception as e:
             logger.error(f"Failed to load STT model: {e}")
             raise STTError(f"Failed to load STT model: {e}") from e
