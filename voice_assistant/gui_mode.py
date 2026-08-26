@@ -76,26 +76,18 @@ class GuiSession:
             return False
 
     # ------------------------------------------------------------------
-    # Enrollment engine (neutral, no initial_prompt bias)
+    # Enrollment engine (shared instance; enrollment passes no prompt)
     # ------------------------------------------------------------------
     @property
     def enroll_engine(self) -> STTEngine:
-        """Lazy STT engine dedicated to enrollment runs."""
+        """STT engine used for enrollment runs.
+
+        Reuses the assistant's engine so the whisper weights stay loaded
+        once; enrollment calls transcribe() with an explicit neutral prompt.
+        Tests may still inject a dedicated engine.
+        """
         if self._enroll_engine is None:
-            s = self._assistant.settings
-            self._enroll_engine = STTEngine(
-                model_size=s.stt.model_size,
-                device=s.stt.device,
-                compute_type=s.stt.compute_type,
-                sample_rate=s.audio.sample_rate,
-                model_dir=s.stt.model_dir,
-                language=None,
-                allowed_languages=s.stt.allowed_languages,
-                language_detection_threshold=s.stt.language_detection_threshold,
-                vad_filter=s.stt.vad_filter,
-                vad_min_silence_ms=s.stt.vad_min_silence_ms,
-                initial_prompt=None,
-            )
+            return self._assistant.stt_engine
         return self._enroll_engine
 
     # ------------------------------------------------------------------
@@ -185,7 +177,7 @@ class GuiSession:
             self._emit_status(f"enroll {i}/{total}: recording")
             try:
                 audio = engine.record_audio(max_seconds)
-                text, lang = engine.transcribe(audio)
+                text, lang = engine.transcribe(audio, initial_prompt=None)
             except Exception as e:
                 logger.error(f"Enrollment capture failed on phrase {i}: {e}")
                 self._emit_status(f"enroll {i}/{total}: error")

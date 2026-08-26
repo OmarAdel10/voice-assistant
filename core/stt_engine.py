@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # Type alias for Whisper model
 WhisperModel = Any
 
+# Sentinel distinguishing "no override" from an explicit None in transcribe().
+_UNSET_PROMPT = object()
+
 
 class STTEngine:
     """Speech-to-Text engine using faster-whisper."""
@@ -270,11 +273,18 @@ class STTEngine:
             # Restore original gain
             self._input_gain = original_gain
 
-    def transcribe(self, audio: NDArray[np.float32]) -> tuple[str, str | None]:
+    def transcribe(
+        self,
+        audio: NDArray[np.float32],
+        initial_prompt: Any = _UNSET_PROMPT,
+    ) -> tuple[str, str | None]:
         """Transcribe audio to text with language detection.
 
         Args:
             audio: Audio data as float32 numpy array (mono, 16kHz)
+            initial_prompt: Optional per-call override of the engine-level
+                speaker adaptation prompt. Omit to use the configured
+                prompt; pass None explicitly to transcribe without one.
 
         Returns:
             Tuple of (transcribed_text, detected_language_code)
@@ -302,13 +312,14 @@ class STTEngine:
 
             # At this point model is guaranteed to be loaded
             assert self._model is not None
+            prompt = self._initial_prompt if initial_prompt is _UNSET_PROMPT else initial_prompt
             segments, info = self._model.transcribe(
                 audio,
                 language=self._language,
                 language_detection_threshold=self._language_detection_threshold,
                 vad_filter=self._vad_filter,
                 vad_parameters={"min_silence_duration_ms": self._vad_min_silence_ms},
-                initial_prompt=self._initial_prompt,
+                initial_prompt=prompt,
             )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000

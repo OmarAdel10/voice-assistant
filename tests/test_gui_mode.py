@@ -27,12 +27,14 @@ class FakeSTT:
         self.language: str | None = None
         self.auto_gain: bool = False
         self.record_calls = 0
+        self.transcribe_prompts: list = []
 
     def record_audio(self, duration: float):
         self.record_calls += 1
         return b"fake-audio"
 
-    def transcribe(self, audio):
+    def transcribe(self, audio, initial_prompt=None):
+        self.transcribe_prompts.append(initial_prompt)
         if self.record_calls % 2 == 0:
             return ("", "en")  # simulate silence every other call
         return ("what time is it", "en")
@@ -80,7 +82,8 @@ class FakeEnrollSTT(FakeSTT):
     def record_audio(self, duration: float):
         return b"fake-audio"
 
-    def transcribe(self, audio):
+    def transcribe(self, audio, initial_prompt=None):
+        self.transcribe_prompts.append(initial_prompt)
         self.call_index += 1
         return (f"phrase {self.call_index}", "en")
 
@@ -249,11 +252,15 @@ def test_enroll_full_flow_records_all_phrases(monkeypatch, tmp_path):
     monkeypatch.setattr(enrollment_mod, "ENROLLMENT_DIR", tmp_path)
     monkeypatch.setattr(enrollment_mod, "ENROLLMENT_FILE", tmp_path / "enrollment.json")
 
-    events, _ = run_session([json.dumps({"type": "enroll"})], enroll_engine=FakeEnrollSTT())
+    enroll_fake = FakeEnrollSTT()
+    events, _ = run_session([json.dumps({"type": "enroll"})], enroll_engine=enroll_fake)
 
     # Every phrase captured, each reported as a transcription event
     transcriptions = events_of_type(events, "transcription")
     assert [t["text"] for t in transcriptions] == [f"phrase {i}" for i in range(1, 7)]
+
+    # Enrollment captures must not be biased by an enrollment prompt
+    assert all(p is None for p in enroll_fake.transcribe_prompts)
 
     statuses = [e["status"] for e in events_of_type(events, "status")]
     assert "enroll-start" in statuses
@@ -280,7 +287,7 @@ def test_enroll_with_no_speech_yields_error(monkeypatch, tmp_path):
     monkeypatch.setattr(enrollment_mod, "ENROLLMENT_FILE", tmp_path / "enrollment.json")
 
     class SilentSTT(FakeSTT):
-        def transcribe(self, audio):
+        def transcribe(self, audio, initial_prompt=None):
             return ("", "en")
 
     events, _ = run_session([json.dumps({"type": "enroll"})], enroll_engine=SilentSTT())
