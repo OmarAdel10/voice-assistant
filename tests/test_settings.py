@@ -26,7 +26,8 @@ class TestSettings:
             assert settings.stt.language is None  # auto-detect
             assert settings.stt.device == "cuda"
             assert settings.stt.compute_type == "float16"
-            assert settings.stt.model_dir == "models/stt"
+            assert settings.stt.model_dir.endswith("models/stt")
+            assert Path(settings.stt.model_dir).is_absolute()
             assert settings.stt.vad_threshold == 0.5
             assert settings.stt.max_listen_seconds == 5
             assert settings.stt.vad_filter is True
@@ -35,7 +36,8 @@ class TestSettings:
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9
             assert settings.tts.voice_id is None
-            assert settings.tts.piper_voice_dir == "models/tts"
+            assert settings.tts.piper_voice_dir.endswith("models/tts")
+            assert Path(settings.tts.piper_voice_dir).is_absolute()
             assert settings.tts.piper_voice_ar == "ar_JO-kareem-medium"
             assert settings.tts.piper_voice_en == "en_US-lessac-medium"
             assert settings.tts.piper_voice_ar_fallback == "ar_JO-kareem-low"

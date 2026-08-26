@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.exceptions import VoiceAssistantError
+from core.paths import PROJECT_ROOT
 
 
 class STTConfig(BaseModel):
@@ -33,7 +34,10 @@ class STTConfig(BaseModel):
     compute_type: str = Field(
         default="float16", description="Quantization type (int8, float16, float32)"
     )
-    model_dir: str = Field(default="models/stt", description="Local model directory")
+    model_dir: str = Field(
+        default=str(PROJECT_ROOT / "models" / "stt"),
+        description="Local model directory",
+    )
     vad_threshold: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Voice activity detection threshold"
     )
@@ -60,7 +64,10 @@ class TTSConfig(BaseModel):
     rate: int = Field(default=180, gt=0, description="Speech rate (words per minute)")
     volume: float = Field(default=0.9, ge=0.0, le=1.0, description="Volume level")
     voice_id: str | None = Field(default=None, description="Voice ID for pyttsx3")
-    piper_voice_dir: str = Field(default="models/tts", description="Local piper voices directory")
+    piper_voice_dir: str = Field(
+        default=str(PROJECT_ROOT / "models" / "tts"),
+        description="Local piper voices directory",
+    )
     piper_voice_ar: str = Field(default="ar_JO-kareem-medium", description="Arabic piper voice")
     piper_voice_en: str = Field(default="en_US-lessac-medium", description="English piper voice")
     piper_voice_ar_fallback: str = Field(
@@ -121,7 +128,7 @@ class LLMConfig(BaseModel):
     model_config = {"frozen": True}
 
     model_path: str = Field(
-        default="models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        default=str(PROJECT_ROOT / "models" / "llm" / "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
         description="Path to GGUF model file",
     )
     enabled: bool = Field(default=True, description="Enable LLM intent parsing")

@@ -12,6 +12,7 @@ from re import Pattern
 from typing import Any
 
 from core.exceptions import NLPError
+from core.paths import PROJECT_ROOT
 
 try:
     from langdetect import detect
@@ -26,7 +27,7 @@ class NLPEngine:
 
     def __init__(
         self,
-        intents_path: str | Path = "config/intents.json",
+        intents_path: str | Path = PROJECT_ROOT / "config" / "intents.json",
         confidence_threshold: float = 0.6,
         confidence_threshold_ar: float | None = None,
         confidence_threshold_en: float | None = None,
