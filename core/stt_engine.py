@@ -74,6 +74,37 @@ class STTEngine:
         self._max_gain = 2.0
         self._model: WhisperModel | None = None
 
+    def set_input_gain(self, gain: float) -> None:
+        """Update input gain at runtime (clamped to safe bounds).
+
+        Args:
+            gain: New input gain factor
+        """
+        clamped = max(0.01, min(10.0, gain))
+        if clamped != self._input_gain:
+            logger.info(f"Input gain updated: {self._input_gain:.3f} -> {clamped:.3f}")
+        self._input_gain = clamped
+
+    def set_language(self, language: str | None) -> None:
+        """Update transcription language at runtime.
+
+        Args:
+            language: Language code (None for auto-detect)
+        """
+        if language != self._language:
+            logger.info(f"STT language updated: {self._language} -> {language}")
+        self._language = language
+
+    def set_auto_gain(self, enabled: bool) -> None:
+        """Enable or disable automatic gain adjustment at runtime.
+
+        Args:
+            enabled: Whether auto-gain should adjust gain during recordings
+        """
+        if enabled != self._auto_gain:
+            logger.info(f"Auto-gain {'enabled' if enabled else 'disabled'}")
+        self._auto_gain = enabled
+
     def _get_model_path(self) -> Path:
         """Get the local model path."""
         return self._model_dir / self._model_size
