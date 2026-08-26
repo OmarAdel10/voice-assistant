@@ -4,9 +4,10 @@ Bridges the Flutter GUI and the assistant core over stdin/stdout using
 one JSON object per line.
 
 Protocol:
-  stdin commands : voice_command, text_command, enroll, test_mic, settings
+  stdin commands : voice_command, text_command, enroll_start, enroll_record,
+                   enroll_cancel, test_mic, settings
   stdout events  : transcription, response, error, mic_test_result,
-                   tts_playing, status
+                   tts_playing, status, enroll_state
 
 stdout is reserved exclusively for protocol frames — all logging goes to
 stderr so the GUI can parse stdout safely.
@@ -44,6 +45,9 @@ class GuiSession:
         self._in: TextIO | None = None
         self._out: TextIO | None = None
         self._enroll_engine = enroll_engine
+        self._enroll_active = False
+        self._enroll_index = 0
+        self._enroll_captured: list[str] = []
 
     # ------------------------------------------------------------------
     # Output helpers
@@ -163,49 +167,108 @@ class GuiSession:
 
         self._emit_status("settings-applied" + (" (" + ", ".join(applied) + ")" if applied else ""))
 
-    def _handle_enroll(self, command: dict[str, Any]) -> None:
-        """Run full enrollment: record every phrase back-to-back."""
-        del command  # enrollment takes no parameters
-        engine = self.enroll_engine
+    def _handle_enroll_start(self, command: dict[str, Any]) -> None:
+        """Begin an interactive enrollment session."""
+        del command
+        self._enroll_active = True
+        self._enroll_index = 0
+        self._enroll_captured = []
         total = len(ENROLLMENT_PHRASES)
-        max_seconds = self._assistant.settings.stt.max_listen_seconds
+        self._emit({
+            "type": "enroll_state",
+            "phase": "started",
+            "index": 0,
+            "total": total,
+            "phrase": ENROLLMENT_PHRASES[0],
+            "transcription": None,
+            "captured": 0,
+            "phrases": list(ENROLLMENT_PHRASES),
+        })
 
-        self._emit_status("enroll-start")
-
-        captured: list[str] = []
-        for i, phrase in enumerate(ENROLLMENT_PHRASES, 1):
-            self._emit_status(f"enroll {i}/{total}: recording")
-            try:
-                audio = engine.record_audio(max_seconds)
-                text, lang = engine.transcribe(audio, initial_prompt=None)
-            except Exception as e:
-                logger.error(f"Enrollment capture failed on phrase {i}: {e}")
-                self._emit_status(f"enroll {i}/{total}: error")
-                continue
-
-            if not text:
-                self._emit_status(f"enroll {i}/{total}: skipped")
-                continue
-
-            captured.append(text)
-            self._emit_transcription(text, lang)
-
-        if not captured:
-            self._emit_error("Enrollment failed: no speech was captured.")
+    def _handle_enroll_record(self, command: dict[str, Any]) -> None:
+        """Capture the current phrase on user request."""
+        del command
+        if not self._enroll_active:
+            self._emit_error("enroll_record before enroll_start")
             return
 
-        prompt = " ".join(captured)
+        engine = self.enroll_engine
+        max_seconds = self._assistant.settings.stt.max_listen_seconds
+        phrase = ENROLLMENT_PHRASES[self._enroll_index]
+
+        try:
+            audio = engine.record_audio(max_seconds)
+            text, lang = engine.transcribe(audio, initial_prompt=None)
+        except Exception as e:
+            logger.error(f"Enrollment capture failed: {e}")
+            self._emit_error(f"Enrollment capture failed: {e}")
+            return
+
+        if not text:
+            self._emit({
+                "type": "enroll_state",
+                "phase": "no_speech",
+                "index": self._enroll_index,
+                "total": len(ENROLLMENT_PHRASES),
+                "phrase": phrase,
+                "transcription": None,
+                "captured": len(self._enroll_captured),
+            })
+            return
+
+        self._enroll_captured.append(text)
+        self._emit_transcription(text, lang)
+
+        done = len(self._enroll_captured) == len(ENROLLMENT_PHRASES)
+        if not done:
+            self._enroll_index += 1
+
+        next_phrase = (
+            ENROLLMENT_PHRASES[self._enroll_index] if not done else None
+        )
+        phase = "complete" if done else "captured"
+        self._emit({
+            "type": "enroll_state",
+            "phase": phase,
+            "index": self._enroll_index,
+            "total": len(ENROLLMENT_PHRASES),
+            "phrase": next_phrase,
+            "transcription": text,
+            "captured": len(self._enroll_captured),
+        })
+
+        if not done:
+            return
+
+        prompt = " ".join(self._enroll_captured)
         try:
             save_enrollment(prompt)
         except Exception as e:
             self._emit_error(f"Failed to save enrollment: {e}")
+            self._enroll_active = False
             return
 
-        self._emit_status("enroll-complete")
+        self._enroll_active = False
         self._emit_response(
-            f"Enrollment saved ({len(captured)}/{total} phrases). Restart to apply.",
+            f"Enrollment saved ({len(self._enroll_captured)}/{len(ENROLLMENT_PHRASES)} phrases). Restart to apply.",
             "en",
         )
+
+    def _handle_enroll_cancel(self, command: dict[str, Any]) -> None:
+        """Abort the interactive session, discarding captures."""
+        del command
+        self._enroll_active = False
+        self._enroll_index = 0
+        self._enroll_captured = []
+        self._emit({
+            "type": "enroll_state",
+            "phase": "cancelled",
+            "index": 0,
+            "total": len(ENROLLMENT_PHRASES),
+            "phrase": None,
+            "transcription": None,
+            "captured": 0,
+        })
 
     # ------------------------------------------------------------------
     # Dispatch
@@ -216,7 +279,9 @@ class GuiSession:
             "text_command": self._handle_text_command,
             "test_mic": self._handle_test_mic,
             "settings": self._handle_settings,
-            "enroll": self._handle_enroll,
+            "enroll_start": self._handle_enroll_start,
+            "enroll_record": self._handle_enroll_record,
+            "enroll_cancel": self._handle_enroll_cancel,
         }
         cmd_type = command.get("type")
         handler = handlers.get(cmd_type)

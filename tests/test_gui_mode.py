@@ -244,43 +244,65 @@ def test_voice_command_silence_reports_no_speech():
 
 
 # ---------------------------------------------------------------------------
-# enroll
+# interactive enrollment
 # ---------------------------------------------------------------------------
-def test_enroll_full_flow_records_all_phrases(monkeypatch, tmp_path):
+def _states(events):
+    return events_of_type(events, "enroll_state")
+
+
+def _cmd(obj):
+    return json.dumps(obj)
+
+
+def test_enroll_start_emits_first_phrase(monkeypatch, tmp_path):
     import voice_assistant.enrollment as enrollment_mod
 
     monkeypatch.setattr(enrollment_mod, "ENROLLMENT_DIR", tmp_path)
     monkeypatch.setattr(enrollment_mod, "ENROLLMENT_FILE", tmp_path / "enrollment.json")
 
-    enroll_fake = FakeEnrollSTT()
-    events, _ = run_session([json.dumps({"type": "enroll"})], enroll_engine=enroll_fake)
+    events, _ = run_session([_cmd({"type": "enroll_start"})])
 
-    # Every phrase captured, each reported as a transcription event
+    states = _states(events)
+    assert len(states) == 1
+    s = states[0]
+    assert s["phase"] == "started"
+    assert s["index"] == 0
+    assert s["total"] == 6
+    assert s["captured"] == 0
+    assert len(s["phrases"]) == 6
+    assert s["phrase"] == s["phrases"][0]
+    assert s["phrases"][0] == enrollment_mod.ENROLLMENT_PHRASES[0]
+
+
+def test_enroll_record_captures_and_advances(monkeypatch, tmp_path):
+    import voice_assistant.enrollment as enrollment_mod
+
+    monkeypatch.setattr(enrollment_mod, "ENROLLMENT_DIR", tmp_path)
+    monkeypatch.setattr(enrollment_mod, "ENROLLMENT_FILE", tmp_path / "enrollment.json")
+
+    events, _ = run_session(
+        [
+            _cmd({"type": "enroll_start"}),
+            _cmd({"type": "enroll_record"}),
+        ],
+        enroll_engine=FakeEnrollSTT(),
+    )
+
     transcriptions = events_of_type(events, "transcription")
-    assert [t["text"] for t in transcriptions] == [f"phrase {i}" for i in range(1, 7)]
+    assert [t["text"] for t in transcriptions] == ["phrase 1"]
 
-    # Enrollment captures must not be biased by an enrollment prompt
-    assert all(p is None for p in enroll_fake.transcribe_prompts)
+    s = _states(events)[-1]
+    assert s["phase"] == "captured"
+    assert s["index"] == 1
+    assert s["captured"] == 1
+    assert s["transcription"] == "phrase 1"
 
-    statuses = [e["status"] for e in events_of_type(events, "status")]
-    assert "enroll-start" in statuses
-    assert "enroll-complete" in statuses
-    assert any("recording" in s for s in statuses)
+    from voice_assistant.enrollment import ENROLLMENT_PHRASES
 
-    # Confirmation response closes the flow
-    responses = events_of_type(events, "response")
-    assert len(responses) == 1
-    assert "Enrollment saved" in responses[0]["text"]
-
-    # Combined prompt persisted to disk
-    saved_file = tmp_path / "enrollment.json"
-    assert saved_file.exists()
-    saved = json.loads(saved_file.read_text(encoding="utf-8"))
-    assert saved["initial_prompt"].startswith("phrase 1")
-    assert saved["initial_prompt"].endswith("phrase 6")
+    assert s["phrase"] == ENROLLMENT_PHRASES[1]
 
 
-def test_enroll_with_no_speech_yields_error(monkeypatch, tmp_path):
+def test_enroll_no_speech_stays_on_phrase(monkeypatch, tmp_path):
     import voice_assistant.enrollment as enrollment_mod
 
     monkeypatch.setattr(enrollment_mod, "ENROLLMENT_DIR", tmp_path)
@@ -290,11 +312,86 @@ def test_enroll_with_no_speech_yields_error(monkeypatch, tmp_path):
         def transcribe(self, audio, initial_prompt=None):
             return ("", "en")
 
-    events, _ = run_session([json.dumps({"type": "enroll"})], enroll_engine=SilentSTT())
+    events, _ = run_session(
+        [
+            _cmd({"type": "enroll_start"}),
+            _cmd({"type": "enroll_record"}),
+            _cmd({"type": "enroll_record"}),
+        ],
+        enroll_engine=SilentSTT(),
+    )
+
+    assert not events_of_type(events, "error")
+    states = _states(events)
+    assert [s["phase"] for s in states[1:]] == ["no_speech", "no_speech"]
+    assert all(s["index"] == 0 for s in states)
+    assert all(s["phrase"] == states[0]["phrase"] for s in states[1:])
+
+
+def test_enroll_cancel_resets_and_blocks_records(monkeypatch, tmp_path):
+    import voice_assistant.enrollment as enrollment_mod
+
+    monkeypatch.setattr(enrollment_mod, "ENROLLMENT_DIR", tmp_path)
+    monkeypatch.setattr(enrollment_mod, "ENROLLMENT_FILE", tmp_path / "enrollment.json")
+
+    events, _ = run_session(
+        [
+            _cmd({"type": "enroll_start"}),
+            _cmd({"type": "enroll_record"}),
+            _cmd({"type": "enroll_cancel"}),
+            _cmd({"type": "enroll_record"}),
+        ],
+        enroll_engine=FakeEnrollSTT(),
+    )
+
+    states = _states(events)
+    assert [s["phase"] for s in states] == ["started", "captured", "cancelled"]
+    assert states[-1]["captured"] == 0
+
     errors = events_of_type(events, "error")
     assert len(errors) == 1
-    assert "no speech" in errors[0]["message"]
+    assert "before enroll_start" in errors[0]["message"]
     assert not (tmp_path / "enrollment.json").exists()
+
+
+def test_enroll_full_happy_path_saves_once(monkeypatch, tmp_path):
+    import voice_assistant.enrollment as enrollment_mod
+
+    monkeypatch.setattr(enrollment_mod, "ENROLLMENT_DIR", tmp_path)
+    monkeypatch.setattr(enrollment_mod, "ENROLLMENT_FILE", tmp_path / "enrollment.json")
+
+    commands = [_cmd({"type": "enroll_start"})]
+    commands += [_cmd({"type": "enroll_record"}) for _ in range(6)]
+    events, _ = run_session(commands, enroll_engine=FakeEnrollSTT())
+
+    transcriptions = events_of_type(events, "transcription")
+    assert [t["text"] for t in transcriptions] == [f"phrase {i}" for i in range(1, 7)]
+
+    states = _states(events)
+    assert [s["phase"] for s in states] == (
+        ["started"] + ["captured"] * 5 + ["complete"]
+    )
+    final = states[-1]
+    assert final["captured"] == 6
+    assert final["phrase"] is None
+
+    responses = events_of_type(events, "response")
+    assert len(responses) == 1
+    assert "Enrollment saved" in responses[0]["text"]
+
+    saved_file = tmp_path / "enrollment.json"
+    assert saved_file.exists()
+    saved = json.loads(saved_file.read_text(encoding="utf-8"))
+    assert saved["initial_prompt"].startswith("phrase 1")
+    assert saved["initial_prompt"].endswith("phrase 6")
+
+
+def test_enroll_record_before_start_is_error():
+    events, _ = run_session([_cmd({"type": "enroll_record"})])
+    errors = events_of_type(events, "error")
+    assert len(errors) == 1
+    assert "before enroll_start" in errors[0]["message"]
+    assert not _states(events)
 
 
 # ---------------------------------------------------------------------------
