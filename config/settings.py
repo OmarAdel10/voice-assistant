@@ -6,17 +6,33 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.exceptions import VoiceAssistantError
 from core.paths import PROJECT_ROOT
 
 
+def _anchor_path(value: object) -> object:
+    """Resolve a relative path against the project root.
+
+    Config files may specify model locations as project-relative strings;
+    anchoring them at load time keeps the CLI correct from any CWD.
+    """
+    if isinstance(value, str) and value and not Path(value).is_absolute():
+        return str(PROJECT_ROOT / value)
+    return value
+
+
 class STTConfig(BaseModel):
     """Speech-to-Text configuration."""
 
     model_config = {"frozen": True}
+
+    @field_validator("model_dir", mode="before")
+    @classmethod
+    def _anchor_model_dir(cls, v: object) -> object:
+        return _anchor_path(v)
 
     model_size: str = Field(default="large-v3", description="Whisper model size")
     language: str | None = Field(
@@ -63,6 +79,11 @@ class TTSConfig(BaseModel):
     """Text-to-Speech configuration."""
 
     model_config = {"frozen": True}
+
+    @field_validator("piper_voice_dir", mode="before")
+    @classmethod
+    def _anchor_piper_voice_dir(cls, v: object) -> object:
+        return _anchor_path(v)
 
     engine: Literal["piper", "pyttsx3"] = Field(default="piper", description="TTS engine")
     rate: int = Field(default=180, gt=0, description="Speech rate (words per minute)")
@@ -130,6 +151,11 @@ class LLMConfig(BaseModel):
     """LLM configuration for intent parsing and response generation."""
 
     model_config = {"frozen": True}
+
+    @field_validator("model_path", mode="before")
+    @classmethod
+    def _anchor_model_path(cls, v: object) -> object:
+        return _anchor_path(v)
 
     model_path: str = Field(
         default=str(PROJECT_ROOT / "models" / "llm" / "qwen2.5-1.5b-instruct-q4_k_m.gguf"),

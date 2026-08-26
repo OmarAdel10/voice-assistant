@@ -141,6 +141,35 @@ class TestSettings:
                 settings.stt.model_size = "different"
 
 
+    def test_relative_yaml_paths_anchor_to_project_root(self, tmp_path):
+        """Relative model paths in config.yaml must resolve to PROJECT_ROOT."""
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "stt:\n"
+            "  model_dir: models/stt\n"
+            "tts:\n"
+            "  piper_voice_dir: models/tts\n"
+            "llm:\n"
+            "  model_path: models/llm/model.gguf\n"
+        )
+        settings = Settings.load(cfg)
+
+        assert Path(settings.stt.model_dir).is_absolute()
+        assert settings.stt.model_dir.endswith("models/stt")
+        assert Path(settings.tts.piper_voice_dir).is_absolute()
+        assert settings.tts.piper_voice_dir.endswith("models/tts")
+        assert Path(settings.llm.model_path).is_absolute()
+        assert settings.llm.model_path.endswith("models/llm/model.gguf")
+
+    def test_absolute_yaml_paths_left_untouched(self, tmp_path):
+        """Absolute paths from config.yaml pass through unchanged."""
+        custom = tmp_path / "custom_models"
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(f"stt:\n  model_dir: {custom}\n")
+        settings = Settings.load(cfg)
+        assert settings.stt.model_dir == str(custom)
+
+
 class TestIntentsRegistry:
     """Test intents.json loading."""
 
