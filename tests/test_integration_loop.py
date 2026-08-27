@@ -60,7 +60,7 @@ class TestFullPipeline:
         self.runner = CliRunner()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.get_time")
     @patch("voice_assistant.main.TTSEngine")
@@ -96,7 +96,7 @@ class TestFullPipeline:
         mock_tts.say.assert_called_once_with("02:30 PM", lang="en")
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.web_search")
     @patch("voice_assistant.main.TTSEngine")
@@ -166,7 +166,7 @@ class TestErrorRecovery:
         self.runner = CliRunner()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.TTSEngine")
     def test_mic_unavailable_recovery(self, mock_tts_class, mock_stt_class, mock_settings_class):
         """Mic unavailable -> TTS fallback message."""
@@ -188,7 +188,7 @@ class TestErrorRecovery:
         assert "error" in called_text.lower() or "microphone" in called_text.lower()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.TTSEngine")
     def test_model_load_failure_recovery(
@@ -217,7 +217,7 @@ class TestErrorRecovery:
         assert "error" in called_text.lower()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.TTSEngine")
     def test_unknown_intent_spoken_fallback(
@@ -251,7 +251,7 @@ class TestErrorRecovery:
         assert "didn't understand" in called_text.lower() or "unknown" in called_text.lower()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.open_app")
     @patch("voice_assistant.main.TTSEngine")
@@ -284,7 +284,7 @@ class TestErrorRecovery:
         assert "error" in called_text.lower() or "not found" in called_text.lower()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.get_time")
     @patch("voice_assistant.main.TTSEngine")
@@ -324,7 +324,7 @@ class TestLatencyLogging:
         self.runner = CliRunner()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.get_time")
     @patch("voice_assistant.main.TTSEngine")
@@ -369,7 +369,7 @@ class TestModuleBoundaries:
         self.runner = CliRunner()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.get_time")
     @patch("voice_assistant.main.TTSEngine")

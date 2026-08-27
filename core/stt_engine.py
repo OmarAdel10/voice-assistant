@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
 
+from config.settings import STTConfig, STTProvider
 from core.exceptions import STTError
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,20 @@ WhisperModel = Any
 
 # Sentinel distinguishing "no override" from an explicit None in transcribe().
 _UNSET_PROMPT = object()
+
+
+class STTEngineBase(Protocol):
+    """Protocol defining the STT engine interface."""
+
+    def record_audio(self, duration: float) -> NDArray[np.float32]: ...
+    def transcribe(
+        self, audio: NDArray[np.float32], initial_prompt: Any = _UNSET_PROMPT
+    ) -> tuple[str, str | None]: ...
+    def test_microphone(self, duration: float = 3.0, gain: float | None = None) -> dict: ...
+    def set_input_gain(self, gain: float) -> None: ...
+    def set_auto_gain(self, enabled: bool) -> None: ...
+    def set_language(self, language: str | None) -> None: ...
+    def close(self) -> None: ...
 
 
 class STTEngine:
@@ -398,3 +413,72 @@ class STTEngine:
         except Exception as e:
             logger.error(f"Transcription failed: {e}")
             raise STTError(f"Transcription failed: {e}") from e
+
+    def close(self) -> None:
+        """Close the engine (no-op for local)."""
+        pass
+
+
+def create_stt_engine(config: STTConfig) -> STTEngineBase:
+    """Factory returning STT engine based on provider config.
+
+    Args:
+        config: STT configuration with provider setting
+
+    Returns:
+        STT engine instance (Gemini or Local)
+
+    Raises:
+        STTError: If Gemini provider selected but API key not configured
+    """
+    if config.provider == STTProvider.GEMINI:
+        # Validate API key
+        api_key = config.gemini_api_key or __import__("os").getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.warning(
+                "Gemini provider selected but no API key configured. "
+                "Falling back to local STT engine."
+            )
+            return STTEngine(
+                model_size=config.model_size,
+                device=config.device,
+                compute_type=config.compute_type,
+                sample_rate=16000,
+                model_dir=config.model_dir,
+                language=config.language,
+                allowed_languages=config.allowed_languages,
+                language_detection_threshold=config.language_detection_threshold,
+                vad_filter=config.vad_filter,
+                vad_min_silence_ms=config.vad_min_silence_ms,
+                initial_prompt=config.initial_prompt,
+                input_gain=config.input_gain,
+                auto_gain=config.auto_gain,
+                offline=config.offline,
+            )
+
+        # Import here to avoid hard dependency
+        from core.stt_gemini import GeminiSTTEngine
+
+        return GeminiSTTEngine(config)
+
+    # Default to local
+    return STTEngine(
+        model_size=config.model_size,
+        device=config.device,
+        compute_type=config.compute_type,
+        sample_rate=16000,
+        model_dir=config.model_dir,
+        language=config.language,
+        allowed_languages=config.allowed_languages,
+        language_detection_threshold=config.language_detection_threshold,
+        vad_filter=config.vad_filter,
+        vad_min_silence_ms=config.vad_min_silence_ms,
+        initial_prompt=config.initial_prompt,
+        input_gain=config.input_gain,
+        auto_gain=config.auto_gain,
+        offline=config.offline,
+    )
+
+
+# Backward compatibility alias
+LocalSTTEngine = STTEngine

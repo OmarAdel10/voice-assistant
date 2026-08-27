@@ -1,5 +1,6 @@
 """Tests for config/settings.py."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from config.settings import Settings
+from config.settings import Settings, _load_dotenv
 from core.exceptions import VoiceAssistantError
 
 
@@ -140,7 +141,6 @@ class TestSettings:
             with pytest.raises(ValidationError):
                 settings.stt.model_size = "different"
 
-
     def test_relative_yaml_paths_anchor_to_project_root(self, tmp_path):
         """Relative model paths in config.yaml must resolve to PROJECT_ROOT."""
         cfg = tmp_path / "config.yaml"
@@ -168,6 +168,75 @@ class TestSettings:
         cfg.write_text(f"stt:\n  model_dir: {custom}\n")
         settings = Settings.load(cfg)
         assert settings.stt.model_dir == str(custom)
+
+
+class TestDotenvLoading:
+    """Test .env auto-loading so secrets reach the process regardless of launcher.
+
+    The Flutter GUI spawns the CLI as a subprocess and does not inherit a
+    developer's shell exports, so GEMINI_API_KEY must be readable from a
+    project-root .env file for every launch path (shell, python -m, GUI).
+    """
+
+    def test_load_dotenv_sets_environment_variable(self, tmp_path, monkeypatch):
+        """A simple KEY=VALUE line in .env should populate os.environ."""
+        monkeypatch.delenv("MY_TEST_KEY", raising=False)
+        dotenv_path = tmp_path / ".env"
+        dotenv_path.write_text("MY_TEST_KEY=super-secret\n")
+
+        _load_dotenv(dotenv_path)
+
+        assert os.environ["MY_TEST_KEY"] == "super-secret"
+
+    def test_load_dotenv_skips_comments_and_blank_lines(self, tmp_path, monkeypatch):
+        """Comments and blank lines must not raise or set spurious vars."""
+        monkeypatch.delenv("REAL_KEY", raising=False)
+        dotenv_path = tmp_path / ".env"
+        dotenv_path.write_text("# a comment\n\nREAL_KEY=value\n   \n# another\n")
+
+        _load_dotenv(dotenv_path)
+
+        assert os.environ["REAL_KEY"] == "value"
+
+    def test_load_dotenv_strips_quotes(self, tmp_path, monkeypatch):
+        """Quoted values should have surrounding quotes stripped."""
+        monkeypatch.delenv("QUOTED_KEY", raising=False)
+        dotenv_path = tmp_path / ".env"
+        dotenv_path.write_text('QUOTED_KEY="quoted-value"\n')
+
+        _load_dotenv(dotenv_path)
+
+        assert os.environ["QUOTED_KEY"] == "quoted-value"
+
+    def test_load_dotenv_does_not_override_existing_env(self, tmp_path, monkeypatch):
+        """A real environment variable must win over the .env file value."""
+        monkeypatch.setenv("PRIORITY_KEY", "from-shell")
+        dotenv_path = tmp_path / ".env"
+        dotenv_path.write_text("PRIORITY_KEY=from-dotenv\n")
+
+        _load_dotenv(dotenv_path)
+
+        assert os.environ["PRIORITY_KEY"] == "from-shell"
+
+    def test_load_dotenv_missing_file_is_noop(self, tmp_path):
+        """A missing .env file must not raise."""
+        _load_dotenv(tmp_path / "does-not-exist.env")  # should not raise
+
+    def test_settings_load_reads_dotenv_from_project_root(self, tmp_path, monkeypatch):
+        """Settings.load() should read GEMINI_API_KEY from the project-root .env."""
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setattr("config.settings.PROJECT_ROOT", tmp_path)
+        (tmp_path / ".env").write_text("GEMINI_API_KEY=from-project-env\n")
+
+        Settings.load(tmp_path / "config.yaml")
+
+        assert os.environ["GEMINI_API_KEY"] == "from-project-env"
+
+    def test_settings_load_without_dotenv_file_does_not_raise(self, tmp_path, monkeypatch):
+        """Settings.load() must work normally when no .env file is present."""
+        monkeypatch.setattr("config.settings.PROJECT_ROOT", tmp_path)
+        settings = Settings.load(tmp_path / "config.yaml")
+        assert settings.stt.model_size == "large-v3"
 
 
 class TestIntentsRegistry:

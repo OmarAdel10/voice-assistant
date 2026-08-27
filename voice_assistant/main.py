@@ -14,7 +14,7 @@ from core.exceptions import ActionError, NLPError, STTError, TTSError
 from core.llm_engine import LLMEngine
 from core.nlp_engine import NLPEngine
 from core.paths import PROJECT_ROOT
-from core.stt_engine import STTEngine
+from core.stt_engine import STTEngineBase, create_stt_engine
 from core.tts_engine import TTSEngine
 from voice_assistant.enrollment import load_enrollment, run_enrollment
 
@@ -35,32 +35,16 @@ class VoiceAssistant:
         self._enrollment_prompt = load_enrollment()
 
         # Initialize engines lazily
-        self._stt_engine: STTEngine | None = None
+        self._stt_engine: STTEngineBase | None = None
         self._nlp_engine: NLPEngine | None = None
         self._tts_engine: TTSEngine | None = None
         self._llm_engine: LLMEngine | None = None
 
     @property
-    def stt_engine(self) -> STTEngine:
-        """Lazy STT engine initialization."""
+    def stt_engine(self) -> STTEngineBase:
+        """Lazy STT engine initialization using factory."""
         if self._stt_engine is None:
-            # Use enrollment prompt if available, otherwise fall back to config
-            initial_prompt = self._enrollment_prompt or self.settings.stt.initial_prompt
-            self._stt_engine = STTEngine(
-                model_size=self.settings.stt.model_size,
-                device=self.settings.stt.device,
-                compute_type=self.settings.stt.compute_type,
-                sample_rate=self.settings.audio.sample_rate,
-                model_dir=self.settings.stt.model_dir,
-                language=self.settings.stt.language,
-                allowed_languages=self.settings.stt.allowed_languages,
-                language_detection_threshold=self.settings.stt.language_detection_threshold,
-                vad_filter=self.settings.stt.vad_filter,
-                vad_min_silence_ms=self.settings.stt.vad_min_silence_ms,
-                initial_prompt=initial_prompt,
-                input_gain=self.settings.stt.input_gain,
-                offline=self.settings.stt.offline,
-            )
+            self._stt_engine = create_stt_engine(self.settings.stt)
         return self._stt_engine
 
     @property
@@ -312,20 +296,8 @@ def run_mic_test(settings: Settings, duration: float, gain: float | None) -> Non
         click.echo(f"Gain override: {gain}")
     click.echo("")
 
-    # Create STT engine for test (without initial_prompt to avoid circular dependency)
-    stt_engine = STTEngine(
-        model_size=settings.stt.model_size,
-        device=settings.stt.device,
-        compute_type=settings.stt.compute_type,
-        sample_rate=settings.audio.sample_rate,
-        model_dir=settings.stt.model_dir,
-        language=None,
-        allowed_languages=settings.stt.allowed_languages,
-        language_detection_threshold=settings.stt.language_detection_threshold,
-        vad_filter=settings.stt.vad_filter,
-        vad_min_silence_ms=settings.stt.vad_min_silence_ms,
-        initial_prompt=None,
-    )
+    # Create STT engine for test using factory
+    stt_engine = create_stt_engine(settings.stt)
 
     click.echo("🔴 Recording...")
     try:

@@ -233,7 +233,7 @@ class TestCLI:
         assert "didn't understand" in called_text.lower() or "unknown" in called_text.lower()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.get_time")
     @patch("voice_assistant.main.TTSEngine")
@@ -269,7 +269,7 @@ class TestCLI:
         mock_tts.say.assert_called_once_with("02:30 PM", lang="en")
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.NLPEngine")
     @patch("voice_assistant.main.TTSEngine")
     @patch("signal.signal")
@@ -356,7 +356,7 @@ class TestCLI:
         assert "error" in called_text.lower()
 
     @patch("voice_assistant.main.Settings")
-    @patch("voice_assistant.main.STTEngine")
+    @patch("voice_assistant.main.create_stt_engine")
     @patch("voice_assistant.main.TTSEngine")
     def test_stt_error_handling(self, mock_tts_class, mock_stt_class, mock_settings_class):
         """STT errors should be handled gracefully and passed to TTS."""

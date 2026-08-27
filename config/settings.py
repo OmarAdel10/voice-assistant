@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
@@ -22,6 +24,45 @@ def _anchor_path(value: object) -> object:
     if isinstance(value, str) and value and not Path(value).is_absolute():
         return str(PROJECT_ROOT / value)
     return value
+
+
+def _load_dotenv(dotenv_path: Path) -> None:
+    """Populate ``os.environ`` from a ``.env`` file, anchored at project root.
+
+    Secrets (e.g. ``GEMINI_API_KEY``) must reach the process no matter who
+    launches it — an interactive shell, ``python -m``, or a subprocess spawned
+    by the Flutter GUI (which does not inherit a developer's shell exports).
+    Reading a fixed, absolute path makes the key available in every case.
+
+    Real environment variables always win: existing entries are left in
+    place via ``setdefault``. Missing files, comments, and blank lines are
+    silently ignored; this is intentionally minimal (no third-party
+    dependency) and only supports simple ``KEY=VALUE`` lines.
+    """
+    if not dotenv_path.is_file():
+        return
+
+    try:
+        lines = dotenv_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+class STTProvider(StrEnum):
+    """STT provider selection."""
+
+    LOCAL = "local"
+    GEMINI = "gemini"
 
 
 class STTConfig(BaseModel):
@@ -72,6 +113,29 @@ class STTConfig(BaseModel):
     offline: bool = Field(
         default=False,
         description="Require a locally cached whisper snapshot; never contact the Hub",
+    )
+
+    # Provider selection
+    provider: STTProvider = Field(
+        default=STTProvider.GEMINI, description="STT provider (local or gemini)"
+    )
+
+    # Gemini Cloud STT settings
+    gemini_api_key: str | None = Field(
+        default=None, description="Gemini API key (or set GEMINI_API_KEY env var)"
+    )
+    gemini_model: str = Field(
+        default="gemini-3.5-transcribe", description="Gemini Transcribe model ID"
+    )
+    gemini_base_url: str | None = Field(
+        default=None, description="Vertex AI override endpoint (optional)"
+    )
+    gemini_timeout: float = Field(
+        default=30.0, gt=0, description="Gemini API request timeout in seconds"
+    )
+    gemini_language: str | None = Field(
+        default=None,
+        description="Force language for Gemini (BCP-47, e.g., en-US, ar-EG), None=auto-detect",
     )
 
 
@@ -204,6 +268,8 @@ class Settings(BaseSettings):
         Raises:
             VoiceAssistantError: If YAML is invalid
         """
+        _load_dotenv(PROJECT_ROOT / ".env")
+
         path = Path(config_path)
 
         if not path.exists():

@@ -21,6 +21,7 @@ dependencies = [
     "rapidfuzz>=3.0",
     "langdetect>=1.0",
     "huggingface-hub>=0.20",
+    "google-genai>=1.0",
 ]
 
 [project.optional-dependencies]
