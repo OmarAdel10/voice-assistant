@@ -123,7 +123,11 @@ class GuiSession:
             self._emit_error("text_command requires a non-empty 'text' field")
             return
 
-        response_text, response_lang = self._assistant.process_text(text, lang=None)
+        lang = command.get("lang")
+        if lang and lang not in ("ar", "en"):
+            lang = None
+
+        response_text, response_lang = self._assistant.process_text(text, lang=lang)
         self._emit_response(response_text, response_lang)
 
         if self._safe_say(response_text, response_lang):

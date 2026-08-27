@@ -208,25 +208,31 @@ class VoiceAssistant:
     def _execute_nlp_intent(self, intent: str, entities: dict, lang: str) -> tuple[str, str]:
         """Execute action based on NLP result."""
         if intent == "get_time":
-            return get_time(), lang
+            return get_time(lang), lang
         elif intent == "get_date":
-            return get_date(), lang
+            return get_date(lang), lang
         elif intent == "get_sys_info":
             info = get_sysinfo()
             cpu = info["cpu_percent"]
             mem = info["memory_percent"]
             disk = info["disk_percent"]
+            if lang == "ar":
+                return f"المعالج: {cpu:.1f}% | الذاكرة: {mem:.1f}% | القرص: {disk:.1f}%", lang
             return f"CPU: {cpu:.1f}% | Memory: {mem:.1f}% | Disk: {disk:.1f}%", lang
         elif intent == "open_app":
             app_name = entities.get("app")
             if not app_name:
                 # Fallback: infer app from transcribed text for common cases
-                return "Which app would you like me to open?", lang
-            return open_app(app_name), lang
+                return self.nlp_engine.get_response_template("unknown", lang).format(text=""), lang
+            return open_app(app_name, lang=lang), lang
         elif intent == "web_search":
-            return web_search(entities["query"]), lang
+            result = web_search(entities["query"])
+            # Return localized message
+            if lang == "ar":
+                return f"جاري البحث عن {entities['query']}.", lang
+            return result, lang
         else:
-            return f"Unknown intent: {intent}", lang
+            return self.nlp_engine.get_response_template("unknown", lang).format(text=""), lang
 
     def run_once_voice(self) -> None:
         """Single voice interaction: listen -> transcribe -> process -> speak."""

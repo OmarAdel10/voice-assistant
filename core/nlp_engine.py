@@ -242,6 +242,14 @@ class NLPEngine:
                             if entity in match.groupdict():
                                 extracted[entity] = match.group(entity)
 
+                        # Special handling for open_app: if no app entity found but pattern matched,
+                        # try to infer app from the matched text
+                        if intent_name == "open_app" and "app" not in extracted:
+                            matched_text = match.group(0)
+                            inferred_app = self._infer_app_from_text(matched_text, lang)
+                            if inferred_app:
+                                extracted["app"] = inferred_app
+
                         elapsed_ms = (time.perf_counter() - start_time) * 1000
                         logger.info(
                             f"NLP: {elapsed_ms:.0f}ms | Intent: {intent_name} | "
@@ -271,6 +279,83 @@ class NLPEngine:
         except Exception as e:
             logger.error(f"NLP parsing failed: {e}")
             raise NLPError(f"NLP parsing failed: {e}") from e
+
+    def _infer_app_from_text(self, text: str, lang: str) -> str | None:
+        """Infer app name from matched text for open_app intent."""
+        # Known Arabic app keywords -> English executable names
+        ar_app_keywords = {
+            "كود": "code",
+            "الكود": "code",
+            "في إس كود": "vscode",
+            "فيجوال ستوديو": "vscode",
+            "فايرفوكس": "firefox",
+            "المتصفح": "firefox",
+            "كروم": "chrome",
+            "جوجل كروم": "chrome",
+            "كروميوم": "chromium",
+            "تيرمينال": "terminal",
+            "الطرفية": "terminal",
+            "كونسول": "console",
+            "فيم": "vim",
+            "نيم": "nvim",
+            "نافيم": "nvim",
+            "دولفين": "dolphin",
+            "ثونار": "thunar",
+            "ناوتيلوس": "nautilus",
+            "الملفات": "nautilus",
+            "في ال سي": "vlc",
+            "سبوتيفاي": "spotify",
+            "ديسكورد": "discord",
+            "تليجرام": "telegram",
+            "حاسبة": "calculator",
+            "التقويم": "calendar",
+            "ليبر أوفيس": "libreoffice",
+            "جيديت": "gedit",
+            "كيت": "kate",
+        }
+
+        # Known English app keywords
+        en_app_keywords = {
+            "code": "code",
+            "vscode": "vscode",
+            "visual studio": "vscode",
+            "firefox": "firefox",
+            "browser": "firefox",
+            "chrome": "chrome",
+            "chromium": "chromium",
+            "terminal": "terminal",
+            "console": "console",
+            "vim": "vim",
+            "nvim": "nvim",
+            "dolphin": "dolphin",
+            "thunar": "thunar",
+            "nautilus": "nautilus",
+            "files": "nautilus",
+            "vlc": "vlc",
+            "spotify": "spotify",
+            "discord": "discord",
+            "telegram": "telegram",
+            "calculator": "calculator",
+            "calendar": "calendar",
+            "libreoffice": "libreoffice",
+            "gedit": "gedit",
+            "kate": "kate",
+        }
+
+        text_lower = text.lower().strip()
+
+        if lang == "ar":
+            # Check Arabic keywords
+            for keyword, app in ar_app_keywords.items():
+                if keyword in text_lower:
+                    return app
+        else:
+            # Check English keywords
+            for keyword, app in en_app_keywords.items():
+                if keyword in text_lower:
+                    return app
+
+        return None
 
     def get_response_template(self, intent_name: str, lang: str) -> str:
         """Get response template for intent and language."""
