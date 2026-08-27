@@ -15,6 +15,7 @@ stt:
   initial_prompt: null  # set by voice enrollment (--enroll)
   input_gain: 0.15
   auto_gain: false
+  offline: false  # never contact HuggingFace Hub; require local model snapshot
 
 tts:
   engine: "piper"

@@ -271,23 +271,47 @@ def _normalize_app_name(name: str) -> str:
     return name_clean
 
 
-def get_time() -> str:
+def get_time(lang: str = "en") -> str:
     """Get current time formatted as HH:MM AM/PM.
 
+    Args:
+        lang: Language code ("en" or "ar")
+
     Returns:
-        Formatted time string (e.g., "02:30 PM")
+        Formatted time string (e.g., "02:30 PM" or "02:30 م")
     """
     now = datetime.now()
+    if lang == "ar":
+        # Arabic time format: HH:MM ص/م
+        hour = now.hour % 12
+        if hour == 0:
+            hour = 12
+        period = "ص" if now.hour < 12 else "م"
+        return f"{hour:02d}:{now.minute:02d} {period}"
     return now.strftime("%I:%M %p")
 
 
-def get_date() -> str:
+def get_date(lang: str = "en") -> str:
     """Get current date formatted as Weekday, Month DD, YYYY.
 
+    Args:
+        lang: Language code ("en" or "ar")
+
     Returns:
-        Formatted date string (e.g., "Monday, January 15, 2024")
+        Formatted date string (e.g., "Monday, January 15, 2024" or "الاثنين، 15 يناير 2024")
     """
     now = datetime.now()
+    if lang == "ar":
+        arabic_weekdays = [
+            "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"
+        ]
+        arabic_months = [
+            "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
+            "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+        ]
+        weekday = arabic_weekdays[now.weekday()]
+        month = arabic_months[now.month - 1]
+        return f"{weekday}، {now.day} {month} {now.year}"
     return now.strftime("%A, %B %d, %Y")
 
 

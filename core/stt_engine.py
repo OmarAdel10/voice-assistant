@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # Type alias for Whisper model
 WhisperModel = Any
 
+# Sentinel distinguishing "no override" from an explicit None in transcribe().
+_UNSET_PROMPT = object()
+
 
 class STTEngine:
     """Speech-to-Text engine using faster-whisper."""
@@ -36,6 +39,7 @@ class STTEngine:
         initial_prompt: str | None = None,
         input_gain: float = 1.0,
         auto_gain: bool = False,
+        offline: bool = False,
     ) -> None:
         """Initialize STT engine (lazy model loading).
 
@@ -53,6 +57,8 @@ class STTEngine:
             initial_prompt: Speaker adaptation prompt from voice enrollment
             input_gain: Input volume gain (0.1-1.0 to prevent clipping)
             auto_gain: Automatically adjust input gain based on audio levels
+            offline: Never contact the Hugging Face Hub; require a local
+                model snapshot and fail fast when none is available
         """
         self._model_size = model_size
         self._device = device
@@ -67,6 +73,7 @@ class STTEngine:
         self._initial_prompt = initial_prompt
         self._input_gain = max(0.01, min(10.0, input_gain))
         self._auto_gain = auto_gain
+        self._offline = offline
         # Auto-gain state
         self._target_rms = 0.15  # Target RMS level
         self._gain_adjustment_factor = 1.2  # How aggressively to adjust
@@ -74,9 +81,65 @@ class STTEngine:
         self._max_gain = 2.0
         self._model: WhisperModel | None = None
 
+    def set_input_gain(self, gain: float) -> None:
+        """Update input gain at runtime (clamped to safe bounds).
+
+        Args:
+            gain: New input gain factor
+        """
+        clamped = max(0.01, min(10.0, gain))
+        if clamped != self._input_gain:
+            logger.info(f"Input gain updated: {self._input_gain:.3f} -> {clamped:.3f}")
+        self._input_gain = clamped
+
+    def set_language(self, language: str | None) -> None:
+        """Update transcription language at runtime.
+
+        Args:
+            language: Language code (None for auto-detect)
+        """
+        if language != self._language:
+            logger.info(f"STT language updated: {self._language} -> {language}")
+        self._language = language
+
+    def set_auto_gain(self, enabled: bool) -> None:
+        """Enable or disable automatic gain adjustment at runtime.
+
+        Args:
+            enabled: Whether auto-gain should adjust gain during recordings
+        """
+        if enabled != self._auto_gain:
+            logger.info(f"Auto-gain {'enabled' if enabled else 'disabled'}")
+        self._auto_gain = enabled
+
     def _get_model_path(self) -> Path:
         """Get the local model path."""
         return self._model_dir / self._model_size
+
+    def _resolve_local_snapshot(self) -> Path | None:
+        """Find a fully-downloaded local snapshot of the configured model.
+
+        Checks two layouts under the model directory:
+          1. A plain folder named after the model size containing model.bin
+             (e.g. models/stt/large-v3/).
+          2. A Hugging Face cache directory downloaded via download_root
+             (e.g. models/stt/models--Systran--faster-whisper-medium/
+             snapshots/<revision>/).
+
+        Returns:
+            Path to a directory containing model.bin, or None.
+        """
+        plain = self._model_dir / self._model_size
+        if (plain / "model.bin").is_file():
+            return plain
+
+        repo_dir = self._model_dir / f"models--Systran--faster-whisper-{self._model_size}"
+        snapshots = repo_dir / "snapshots"
+        if snapshots.is_dir():
+            for entry in sorted(snapshots.iterdir()):
+                if entry.is_dir() and (entry / "model.bin").is_file():
+                    return entry
+        return None
 
     def load_model(self) -> None:
         """Load the Whisper model (idempotent)."""
@@ -90,15 +153,33 @@ class STTEngine:
             logger.info(
                 f"Loading STT model: {self._model_size} on {self._device} ({self._compute_type})"
             )
-            # Let faster-whisper handle its own Hugging Face cache
-            # download_root tells it where to cache; it will reuse existing cache
-            self._model = WhisperModel(
-                self._model_size,
-                device=self._device,
-                compute_type=self._compute_type,
-                download_root=str(self._model_dir),
-            )
+            snapshot = self._resolve_local_snapshot()
+            if snapshot is not None:
+                # A resolved local path makes faster-whisper skip all
+                # Hugging Face Hub traffic (revision checks included).
+                logger.info(f"Using local model snapshot: {snapshot}")
+                self._model = WhisperModel(
+                    str(snapshot),
+                    device=self._device,
+                    compute_type=self._compute_type,
+                )
+            elif self._offline:
+                raise STTError(
+                    f"Offline mode enabled but no local snapshot of "
+                    f"'{self._model_size}' found in {self._model_dir}"
+                )
+            else:
+                # Fall back to hub resolution by name; download_root tells
+                # faster-whisper where to cache so later runs resolve locally.
+                self._model = WhisperModel(
+                    self._model_size,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                    download_root=str(self._model_dir),
+                )
             logger.info("STT model loaded successfully")
+        except STTError:
+            raise
         except Exception as e:
             logger.error(f"Failed to load STT model: {e}")
             raise STTError(f"Failed to load STT model: {e}") from e
@@ -239,11 +320,18 @@ class STTEngine:
             # Restore original gain
             self._input_gain = original_gain
 
-    def transcribe(self, audio: NDArray[np.float32]) -> tuple[str, str | None]:
+    def transcribe(
+        self,
+        audio: NDArray[np.float32],
+        initial_prompt: Any = _UNSET_PROMPT,
+    ) -> tuple[str, str | None]:
         """Transcribe audio to text with language detection.
 
         Args:
             audio: Audio data as float32 numpy array (mono, 16kHz)
+            initial_prompt: Optional per-call override of the engine-level
+                speaker adaptation prompt. Omit to use the configured
+                prompt; pass None explicitly to transcribe without one.
 
         Returns:
             Tuple of (transcribed_text, detected_language_code)
@@ -271,13 +359,14 @@ class STTEngine:
 
             # At this point model is guaranteed to be loaded
             assert self._model is not None
+            prompt = self._initial_prompt if initial_prompt is _UNSET_PROMPT else initial_prompt
             segments, info = self._model.transcribe(
                 audio,
                 language=self._language,
                 language_detection_threshold=self._language_detection_threshold,
                 vad_filter=self._vad_filter,
                 vad_parameters={"min_silence_duration_ms": self._vad_min_silence_ms},
-                initial_prompt=self._initial_prompt,
+                initial_prompt=prompt,
             )
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000

@@ -26,7 +26,8 @@ class TestSettings:
             assert settings.stt.language is None  # auto-detect
             assert settings.stt.device == "cuda"
             assert settings.stt.compute_type == "float16"
-            assert settings.stt.model_dir == "models/stt"
+            assert settings.stt.model_dir.endswith("models/stt")
+            assert Path(settings.stt.model_dir).is_absolute()
             assert settings.stt.vad_threshold == 0.5
             assert settings.stt.max_listen_seconds == 5
             assert settings.stt.vad_filter is True
@@ -35,7 +36,8 @@ class TestSettings:
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9
             assert settings.tts.voice_id is None
-            assert settings.tts.piper_voice_dir == "models/tts"
+            assert settings.tts.piper_voice_dir.endswith("models/tts")
+            assert Path(settings.tts.piper_voice_dir).is_absolute()
             assert settings.tts.piper_voice_ar == "ar_JO-kareem-medium"
             assert settings.tts.piper_voice_en == "en_US-lessac-medium"
             assert settings.tts.piper_voice_ar_fallback == "ar_JO-kareem-low"
@@ -137,6 +139,35 @@ class TestSettings:
 
             with pytest.raises(ValidationError):
                 settings.stt.model_size = "different"
+
+
+    def test_relative_yaml_paths_anchor_to_project_root(self, tmp_path):
+        """Relative model paths in config.yaml must resolve to PROJECT_ROOT."""
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "stt:\n"
+            "  model_dir: models/stt\n"
+            "tts:\n"
+            "  piper_voice_dir: models/tts\n"
+            "llm:\n"
+            "  model_path: models/llm/model.gguf\n"
+        )
+        settings = Settings.load(cfg)
+
+        assert Path(settings.stt.model_dir).is_absolute()
+        assert settings.stt.model_dir.endswith("models/stt")
+        assert Path(settings.tts.piper_voice_dir).is_absolute()
+        assert settings.tts.piper_voice_dir.endswith("models/tts")
+        assert Path(settings.llm.model_path).is_absolute()
+        assert settings.llm.model_path.endswith("models/llm/model.gguf")
+
+    def test_absolute_yaml_paths_left_untouched(self, tmp_path):
+        """Absolute paths from config.yaml pass through unchanged."""
+        custom = tmp_path / "custom_models"
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(f"stt:\n  model_dir: {custom}\n")
+        settings = Settings.load(cfg)
+        assert settings.stt.model_dir == str(custom)
 
 
 class TestIntentsRegistry:

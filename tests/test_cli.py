@@ -176,7 +176,7 @@ class TestCLI:
         result = self.runner.invoke(cli, ["--once", "--text", "open firefox"])
 
         assert result.exit_code == 0
-        mock_open_app.assert_called_once_with("firefox")
+        mock_open_app.assert_called_once_with("firefox", lang="en")
 
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.NLPEngine")

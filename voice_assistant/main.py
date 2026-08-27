@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import signal
 import sys
-from pathlib import Path
 
 import click
 
@@ -15,46 +13,12 @@ from core.actions import get_date, get_sysinfo, get_time, open_app, web_search
 from core.exceptions import ActionError, NLPError, STTError, TTSError
 from core.llm_engine import LLMEngine
 from core.nlp_engine import NLPEngine
+from core.paths import PROJECT_ROOT
 from core.stt_engine import STTEngine
 from core.tts_engine import TTSEngine
+from voice_assistant.enrollment import load_enrollment, run_enrollment
 
 logger = logging.getLogger(__name__)
-
-# Enrollment file path
-ENROLLMENT_DIR = Path.home() / ".config" / "voice-assistant"
-ENROLLMENT_FILE = ENROLLMENT_DIR / "enrollment.json"
-
-ENROLLMENT_PHRASES = [
-    "مرحبا، كيف حالك؟",
-    "افتح الكود من فضلك",
-    "ما الوقت الآن؟",
-    "Hello, how are you?",
-    "Open the browser please",
-    "What time is it?",
-]
-
-
-def load_enrollment() -> str | None:
-    """Load enrollment prompt from file."""
-    try:
-        if ENROLLMENT_FILE.exists():
-            data = json.loads(ENROLLMENT_FILE.read_text(encoding="utf-8"))
-            return data.get("initial_prompt")
-    except Exception as e:
-        logger.warning(f"Failed to load enrollment: {e}")
-    return None
-
-
-def save_enrollment(prompt: str) -> None:
-    """Save enrollment prompt to file."""
-    try:
-        ENROLLMENT_DIR.mkdir(parents=True, exist_ok=True)
-        data = {"initial_prompt": prompt}
-        ENROLLMENT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        logger.info(f"Enrollment saved to {ENROLLMENT_FILE}")
-    except Exception as e:
-        logger.error(f"Failed to save enrollment: {e}")
-        raise
 
 
 class VoiceAssistant:
@@ -95,6 +59,7 @@ class VoiceAssistant:
                 vad_min_silence_ms=self.settings.stt.vad_min_silence_ms,
                 initial_prompt=initial_prompt,
                 input_gain=self.settings.stt.input_gain,
+                offline=self.settings.stt.offline,
             )
         return self._stt_engine
 
@@ -243,25 +208,31 @@ class VoiceAssistant:
     def _execute_nlp_intent(self, intent: str, entities: dict, lang: str) -> tuple[str, str]:
         """Execute action based on NLP result."""
         if intent == "get_time":
-            return get_time(), lang
+            return get_time(lang), lang
         elif intent == "get_date":
-            return get_date(), lang
+            return get_date(lang), lang
         elif intent == "get_sys_info":
             info = get_sysinfo()
             cpu = info["cpu_percent"]
             mem = info["memory_percent"]
             disk = info["disk_percent"]
+            if lang == "ar":
+                return f"المعالج: {cpu:.1f}% | الذاكرة: {mem:.1f}% | القرص: {disk:.1f}%", lang
             return f"CPU: {cpu:.1f}% | Memory: {mem:.1f}% | Disk: {disk:.1f}%", lang
         elif intent == "open_app":
             app_name = entities.get("app")
             if not app_name:
                 # Fallback: infer app from transcribed text for common cases
-                return "Which app would you like me to open?", lang
-            return open_app(app_name), lang
+                return self.nlp_engine.get_response_template("unknown", lang).format(text=""), lang
+            return open_app(app_name, lang=lang), lang
         elif intent == "web_search":
-            return web_search(entities["query"]), lang
+            result = web_search(entities["query"])
+            # Return localized message
+            if lang == "ar":
+                return f"جاري البحث عن {entities['query']}.", lang
+            return result, lang
         else:
-            return f"Unknown intent: {intent}", lang
+            return self.nlp_engine.get_response_template("unknown", lang).format(text=""), lang
 
     def run_once_voice(self) -> None:
         """Single voice interaction: listen -> transcribe -> process -> speak."""
@@ -330,77 +301,6 @@ class VoiceAssistant:
                 # Continue loop on error
 
         logger.info("Voice assistant stopped")
-
-
-def run_enrollment(settings: Settings) -> None:
-    """Run voice enrollment process."""
-    click.echo("\n🎤 Voice Enrollment")
-    click.echo("=" * 50)
-    click.echo("Please speak each phrase clearly when prompted.")
-    click.echo("Press Enter when ready to record each phrase.\n")
-
-    # Create STT engine for enrollment (without initial_prompt to avoid circular dependency)
-    stt_engine = STTEngine(
-        model_size=settings.stt.model_size,
-        device=settings.stt.device,
-        compute_type=settings.stt.compute_type,
-        sample_rate=settings.audio.sample_rate,
-        model_dir=settings.stt.model_dir,
-        language=None,
-        allowed_languages=settings.stt.allowed_languages,
-        language_detection_threshold=settings.stt.language_detection_threshold,
-        vad_filter=settings.stt.vad_filter,
-        vad_min_silence_ms=settings.stt.vad_min_silence_ms,
-        initial_prompt=None,
-    )
-
-    all_transcriptions = []
-
-    for i, phrase in enumerate(ENROLLMENT_PHRASES, 1):
-        click.echo(f"Phrase {i}/{len(ENROLLMENT_PHRASES)}:")
-        click.echo(f'  📝 "{phrase}"')
-        click.echo("  Press Enter to start recording (5 seconds)...")
-        click.prompt("", prompt_suffix="", show_default=False)
-
-        try:
-            click.echo("  🔴 Recording...")
-            audio = stt_engine.record_audio(settings.stt.max_listen_seconds)
-            click.echo("  🎙️  Transcribing...")
-            text, lang = stt_engine.transcribe(audio)
-
-            if text:
-                click.echo(f'  ✅ Heard: "{text}" (lang: {lang})')
-                all_transcriptions.append(text)
-            else:
-                click.echo("  ⚠️  No speech detected, skipping...")
-
-        except Exception as e:
-            click.echo(f"  ❌ Error: {e}")
-            logger.error(f"Enrollment error on phrase {i}: {e}")
-
-        click.echo("")
-
-    if not all_transcriptions:
-        click.echo("❌ No successful transcriptions. Enrollment cancelled.")
-        return
-
-    # Create initial_prompt from all transcriptions
-    initial_prompt = " ".join(all_transcriptions)
-
-    click.echo("=" * 50)
-    click.echo(f'📋 Combined prompt: "{initial_prompt}"')
-    click.echo("")
-
-    if click.confirm("Save this enrollment?", default=True):
-        try:
-            save_enrollment(initial_prompt)
-            click.echo("✅ Enrollment saved successfully!")
-            click.echo(f"   File: {ENROLLMENT_FILE}")
-            click.echo("\n💡 Restart voice-assistant to use the new enrollment.")
-        except Exception as e:
-            click.echo(f"❌ Failed to save enrollment: {e}")
-    else:
-        click.echo("Enrollment cancelled.")
 
 
 def run_mic_test(settings: Settings, duration: float, gain: float | None) -> None:
@@ -474,6 +374,13 @@ def run_mic_test(settings: Settings, duration: float, gain: float | None) -> Non
 @click.option("--once", "mode", flag_value="once", help="Single interaction mode")
 @click.option("--text", "text_input", type=str, default=None, help="Text input mode (bypasses STT)")
 @click.option(
+    "--gui-mode",
+    "gui_mode",
+    is_flag=True,
+    default=False,
+    help="Serve the Flutter GUI over a JSON-lines stdio session",
+)
+@click.option(
     "--list-intents",
     "list_intents",
     is_flag=True,
@@ -511,6 +418,7 @@ def run_mic_test(settings: Settings, duration: float, gain: float | None) -> Non
 def cli(
     mode: str,
     text_input: str | None,
+    gui_mode: bool,
     list_intents: bool,
     do_enroll: bool,
     do_test_mic: bool,
@@ -532,13 +440,14 @@ def cli(
         return
 
     # Load settings FIRST (for logging config)
-    config_path = Path("config.yaml")
+    config_path = PROJECT_ROOT / "config.yaml"
     settings = Settings.load(config_path)
 
-    # Configure logging
+    # Configure logging (stderr only — stdout may carry protocol frames)
     logging.basicConfig(
         level=settings.log.level,
         format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
     )
 
     if list_intents:
@@ -566,6 +475,12 @@ def cli(
 
     # Create and run assistant
     assistant = VoiceAssistant(settings)
+
+    if gui_mode:
+        from voice_assistant.gui_mode import GuiSession
+
+        GuiSession(assistant).run()
+        return
 
     if mode == "listen":
         assistant.run_listen_loop()

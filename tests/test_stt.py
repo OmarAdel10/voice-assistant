@@ -19,21 +19,44 @@ class TestSTTEngine:
             mock_model_class.assert_not_called()
             assert engine._model is None
 
-    def test_load_model_creates_whisper_model(self):
-        """load_model should create WhisperModel with correct params."""
+    def test_load_model_creates_whisper_model(self, tmp_path):
+        """load_model should pass a local snapshot path when one is cached."""
         with patch("faster_whisper.WhisperModel") as mock_model_class:
             mock_model = Mock()
             mock_model_class.return_value = mock_model
 
-            engine = STTEngine()
+            model_dir = tmp_path / "models"
+            (model_dir / "large-v3").mkdir(parents=True)
+            (model_dir / "large-v3" / "model.bin").write_bytes(b"x")
+
+            engine = STTEngine(model_dir=str(model_dir))
             engine.load_model()
 
-            # Engine uses download_root for Hugging Face cache
+            # Cached snapshot resolves to a local path: no Hub machinery
+            mock_model_class.assert_called_once_with(
+                str(model_dir / "large-v3"),
+                device="cuda",
+                compute_type="float16",
+            )
+            assert engine._model is mock_model
+
+    def test_load_model_falls_back_to_hub_name(self, tmp_path):
+        """Without any cached snapshot, load by name into download_root."""
+        with patch("faster_whisper.WhisperModel") as mock_model_class:
+            mock_model = Mock()
+            mock_model_class.return_value = mock_model
+
+            empty_dir = tmp_path / "empty"
+            empty_dir.mkdir()
+
+            engine = STTEngine(model_dir=str(empty_dir))
+            engine.load_model()
+
             mock_model_class.assert_called_once_with(
                 "large-v3",
                 device="cuda",
                 compute_type="float16",
-                download_root="models/stt",
+                download_root=str(empty_dir),
             )
             assert engine._model is mock_model
 
