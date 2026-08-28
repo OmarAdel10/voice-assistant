@@ -59,18 +59,11 @@ TECH_TRANSLIT = {
     "نيم": "nvim",
     "نافيم": "nvim",
     # Browsers
-    "فايرفوكس": "firefox",
-    "الفايرفوكس": "firefox",
-    "فاير فوكس": "firefox",
-    "الفاير فوكس": "firefox",
     "متصفح": "browser",
     "المتصفح": "browser",
     "كروم": "chrome",
     "الكروم": "chrome",
     "جوجل كروم": "chrome",
-    "كروميوم": "chromium",
-    "براف": "brave",
-    "البراف": "brave",
     # Terminals
     "تيرمينال": "terminal",
     "الترمينال": "terminal",
@@ -81,6 +74,7 @@ TECH_TRANSLIT = {
     "جنوم ترمينال": "gnome-terminal",
     "كيتتي": "kitty",
     "الاكريتي": "alacritty",
+    "جوستي": "ghostty",
     # Dev tools
     "دوك": "docker",
     "الدوك": "docker",
