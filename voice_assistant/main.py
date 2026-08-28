@@ -170,8 +170,8 @@ class VoiceAssistant:
         entities = llm_result.entities
         response_lang = llm_result.language
 
-        if intent == "get_time" or intent == "get_date" or intent == "get_sys_info":
-            return llm_result.response_text, response_lang
+        if intent in {"get_time", "get_date", "get_sys_info"}:
+            return self._execute_nlp_intent(intent, entities, response_lang or "en")
         elif intent == "open_app":
             app_name = entities.get("app")
             if not app_name:

@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
 
-from voice_assistant.main import cli
+from voice_assistant.main import VoiceAssistant, cli
 
 
 def create_mock_settings() -> Mock:
@@ -65,6 +65,33 @@ class TestCLI:
         assert "get_sys_info" in result.output
         assert "open_app" in result.output
         assert "web_search" in result.output
+
+    @patch("voice_assistant.main.get_time")
+    def test_llm_time_intent_uses_current_time(self, mock_get_time):
+        """A confident LLM time intent must use the deterministic clock action."""
+        settings = create_mock_settings()
+        settings.llm = Mock()
+        settings.llm.enabled = True
+        settings.llm.confidence_threshold = 0.7
+
+        assistant = VoiceAssistant(settings)
+        llm_engine = Mock()
+        llm_engine.is_available.return_value = True
+        llm_engine.parse_intent.return_value = Mock(
+            intent="get_time",
+            entities={},
+            response_text="It is 2:30 PM.",
+            language="en",
+            confidence=1.0,
+        )
+        assistant._llm_engine = llm_engine
+        mock_get_time.return_value = "11:01 PM"
+
+        response, language = assistant.process_text("what time is it")
+
+        assert response == "11:01 PM"
+        assert language == "en"
+        mock_get_time.assert_called_once_with("en")
 
     @patch("voice_assistant.main.Settings")
     @patch("voice_assistant.main.NLPEngine")
