@@ -28,12 +28,6 @@ All out-of-scope items discovered during development, triaged with rationale.
 
 ---
 
-## Cloud STT (Google, Azure, AWS)
-**Status**: DEFERRED — Out of scope for MVP
-**Reason**: MVP is offline-first. Cloud STT adds API keys, network latency, cost, privacy concerns. Could be optional engine in future.
-
----
-
 ## Conversation Memory / Context
 **Status**: DEFERRED — Out of scope for MVP
 **Reason**: Each interaction is stateless. Context requires dialogue management, entity persistence, session handling. Future enhancement.
