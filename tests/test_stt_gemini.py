@@ -189,7 +189,7 @@ class TestGeminiSTTEngine:
         text, lang = engine.transcribe(audio)
 
         assert text == "Hello world"
-        assert lang in ("ar", "en", "ar-EG", "en-US", None)  # Language detection may vary
+        assert lang is None  # Gemini does not return detected-language metadata
         mock_client.files.upload.assert_called_once()
         mock_client.interactions.create.assert_called_once()
 

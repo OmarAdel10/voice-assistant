@@ -369,12 +369,11 @@ class GeminiSTTEngine:
             # Extract text from response
             text = interaction.output_text.strip() if interaction.output_text else ""
 
-            # Language detection: use forced language or default to first allowed language
+            # The Transcribe response does not expose detected language metadata.
+            # Allowed languages are request hints, not a detection result.
             lang = None
             if self._forced_language:
                 lang = self._forced_language
-            elif self._allowed_languages:
-                lang = self._allowed_languages[0]
 
             logger.info(f"Gemini STT: {elapsed_ms:.0f}ms | Language: {lang} | Text: {text[:50]}...")
 
