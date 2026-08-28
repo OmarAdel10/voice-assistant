@@ -3,19 +3,19 @@
 stt:
   provider: "gemini"
   max_listen_seconds: 5
-  language: null  # auto-detect
+  language: null # auto-detect
   allowed_languages: ["ar", "en"]
   language_detection_threshold: 0.7
-  initial_prompt: null  # set by voice enrollment (--enroll)
+  initial_prompt: null # set by voice enrollment (--enroll)
   input_gain: 1.0
   auto_gain: true
 
   # Gemini Cloud STT settings
-  gemini_api_key: ""  # set via GEMINI_API_KEY env var or VA_STT__GEMINI_API_KEY
+  gemini_api_key: "" # set via GEMINI_API_KEY env var or VA_STT__GEMINI_API_KEY
   gemini_model: "gemini-3.5-transcribe"
-  gemini_base_url: null  # Vertex AI override (optional)
+  gemini_base_url: null # Vertex AI override (optional)
   gemini_timeout: 30.0
-  gemini_language: null  # force language (BCP-47, e.g., en-US, ar-EG), null=auto-detect
+  gemini_language: null # force language (BCP-47, e.g., en-US, ar-EG), null=auto-detect
 
 tts:
   engine: "piper"

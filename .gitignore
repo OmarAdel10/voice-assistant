@@ -41,7 +41,8 @@ Thumbs.db
 .env
 .env.local
 
-docs/
+docs/*
+!docs/code-guides/
 AGENTS.md
 
 # Models (downloaded at runtime)
