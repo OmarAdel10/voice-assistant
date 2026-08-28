@@ -23,16 +23,8 @@ class TestSettings:
             settings = Settings.load(config_path)
 
             # Check defaults from DESIGN.md
-            assert settings.stt.model_size == "large-v3"
             assert settings.stt.language is None  # auto-detect
-            assert settings.stt.device == "cuda"
-            assert settings.stt.compute_type == "float16"
-            assert settings.stt.model_dir.endswith("models/stt")
-            assert Path(settings.stt.model_dir).is_absolute()
-            assert settings.stt.vad_threshold == 0.5
             assert settings.stt.max_listen_seconds == 5
-            assert settings.stt.vad_filter is True
-            assert settings.stt.vad_min_silence_ms == 500
             assert settings.tts.engine == "piper"
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9
@@ -54,9 +46,7 @@ class TestSettings:
             config_path = Path(tmpdir) / "config.yaml"
             config_data = {
                 "stt": {
-                    "model_size": "base.en",
                     "language": "ar",
-                    "vad_threshold": 0.6,
                     "max_listen_seconds": 5,
                 },
                 "tts": {
@@ -79,9 +69,7 @@ class TestSettings:
 
             settings = Settings.load(config_path)
 
-            assert settings.stt.model_size == "base.en"
             assert settings.stt.language == "ar"
-            assert settings.stt.vad_threshold == 0.6
             assert settings.stt.max_listen_seconds == 5
             assert settings.tts.engine == "pyttsx3"
             assert settings.tts.rate == 200
@@ -97,7 +85,7 @@ class TestSettings:
             config_path = Path(tmpdir) / "config.yaml"
             config_data = {
                 "stt": {
-                    "model_size": "small.en",
+                    "language": "ar",
                 },
                 "tts": {
                     "engine": "pyttsx3",
@@ -108,11 +96,10 @@ class TestSettings:
             settings = Settings.load(config_path)
 
             # Overridden values
-            assert settings.stt.model_size == "small.en"
+            assert settings.stt.language == "ar"
             assert settings.tts.engine == "pyttsx3"
             # Default values preserved
-            assert settings.stt.language is None  # auto-detect
-            assert settings.stt.vad_threshold == 0.5
+            assert settings.stt.allowed_languages == ["ar", "en"]
             assert settings.tts.rate == 180
             assert settings.tts.volume == 0.9
             assert settings.nlp.confidence_threshold == 0.6
@@ -130,7 +117,7 @@ class TestSettings:
     def test_missing_file_returns_defaults(self):
         """Non-existent config file should return defaults, not raise."""
         settings = Settings.load(Path("/nonexistent/path/config.yaml"))
-        assert settings.stt.model_size == "large-v3"
+        assert settings.stt.language is None
 
     def test_settings_are_immutable(self):
         """Settings should be frozen/immutable after creation."""
@@ -139,14 +126,14 @@ class TestSettings:
             settings = Settings.load(config_path)
 
             with pytest.raises(ValidationError):
-                settings.stt.model_size = "different"
+                settings.stt.language = "different"
 
     def test_relative_yaml_paths_anchor_to_project_root(self, tmp_path):
         """Relative model paths in config.yaml must resolve to PROJECT_ROOT."""
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
             "stt:\n"
-            "  model_dir: models/stt\n"
+            "  language: ar\n"
             "tts:\n"
             "  piper_voice_dir: models/tts\n"
             "llm:\n"
@@ -154,8 +141,7 @@ class TestSettings:
         )
         settings = Settings.load(cfg)
 
-        assert Path(settings.stt.model_dir).is_absolute()
-        assert settings.stt.model_dir.endswith("models/stt")
+        assert settings.stt.language == "ar"
         assert Path(settings.tts.piper_voice_dir).is_absolute()
         assert settings.tts.piper_voice_dir.endswith("models/tts")
         assert Path(settings.llm.model_path).is_absolute()
@@ -163,11 +149,10 @@ class TestSettings:
 
     def test_absolute_yaml_paths_left_untouched(self, tmp_path):
         """Absolute paths from config.yaml pass through unchanged."""
-        custom = tmp_path / "custom_models"
         cfg = tmp_path / "config.yaml"
-        cfg.write_text(f"stt:\n  model_dir: {custom}\n")
+        cfg.write_text("stt:\n  language: ar\n")
         settings = Settings.load(cfg)
-        assert settings.stt.model_dir == str(custom)
+        assert settings.stt.language == "ar"
 
 
 class TestDotenvLoading:
@@ -236,7 +221,7 @@ class TestDotenvLoading:
         """Settings.load() must work normally when no .env file is present."""
         monkeypatch.setattr("config.settings.PROJECT_ROOT", tmp_path)
         settings = Settings.load(tmp_path / "config.yaml")
-        assert settings.stt.model_size == "large-v3"
+        assert settings.stt.language is None
 
 
 class TestIntentsRegistry:

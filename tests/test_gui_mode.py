@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -228,9 +227,7 @@ def test_voice_command_full_cycle_event_order():
     assert idx_of(lambda e: e["type"] == "transcription") < idx_of(
         lambda e: e["type"] == "response"
     )
-    assert idx_of(lambda e: e["type"] == "response") < idx_of(
-        lambda e: e["type"] == "tts_playing"
-    )
+    assert idx_of(lambda e: e["type"] == "response") < idx_of(lambda e: e["type"] == "tts_playing")
 
 
 def test_voice_command_silence_reports_no_speech():
@@ -368,9 +365,7 @@ def test_enroll_full_happy_path_saves_once(monkeypatch, tmp_path):
     assert [t["text"] for t in transcriptions] == [f"phrase {i}" for i in range(1, 7)]
 
     states = _states(events)
-    assert [s["phase"] for s in states] == (
-        ["started"] + ["captured"] * 5 + ["complete"]
-    )
+    assert [s["phase"] for s in states] == (["started"] + ["captured"] * 5 + ["complete"])
     final = states[-1]
     assert final["captured"] == 6
     assert final["phrase"] is None

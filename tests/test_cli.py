@@ -11,17 +11,10 @@ def create_mock_settings() -> Mock:
     """Create a properly structured mock Settings object."""
     mock_settings = Mock()
 
-    # STT settings (updated for new config)
+    # STT settings
     mock_settings.stt = Mock()
-    mock_settings.stt.model_size = "large-v3"
-    mock_settings.stt.device = "cuda"
-    mock_settings.stt.compute_type = "float16"
     mock_settings.stt.max_listen_seconds = 5
     mock_settings.stt.language = "ar"
-    mock_settings.stt.vad_threshold = 0.5
-    mock_settings.stt.model_dir = "models/stt"
-    mock_settings.stt.vad_filter = True
-    mock_settings.stt.vad_min_silence_ms = 500
 
     # TTS settings (updated for new config)
     mock_settings.tts = Mock()

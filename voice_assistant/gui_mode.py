@@ -19,10 +19,10 @@ import json
 import logging
 import signal
 import sys
+from contextlib import suppress
 from typing import Any, TextIO
 
-from config.settings import Settings
-from core.stt_engine import STTEngine
+from core.stt_engine import STTEngineBase
 from voice_assistant.enrollment import ENROLLMENT_PHRASES, save_enrollment
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class GuiSession:
     """JSON-lines session driving the assistant from the Flutter GUI."""
 
-    def __init__(self, assistant: Any, enroll_engine: STTEngine | None = None) -> None:
+    def __init__(self, assistant: Any, enroll_engine: STTEngineBase | None = None) -> None:
         """Initialize the session.
 
         Args:
@@ -83,7 +83,7 @@ class GuiSession:
     # Enrollment engine (shared instance; enrollment passes no prompt)
     # ------------------------------------------------------------------
     @property
-    def enroll_engine(self) -> STTEngine:
+    def enroll_engine(self) -> STTEngineBase:
         """STT engine used for enrollment runs.
 
         Reuses the assistant's engine so the whisper weights stay loaded
@@ -178,16 +178,18 @@ class GuiSession:
         self._enroll_index = 0
         self._enroll_captured = []
         total = len(ENROLLMENT_PHRASES)
-        self._emit({
-            "type": "enroll_state",
-            "phase": "started",
-            "index": 0,
-            "total": total,
-            "phrase": ENROLLMENT_PHRASES[0],
-            "transcription": None,
-            "captured": 0,
-            "phrases": list(ENROLLMENT_PHRASES),
-        })
+        self._emit(
+            {
+                "type": "enroll_state",
+                "phase": "started",
+                "index": 0,
+                "total": total,
+                "phrase": ENROLLMENT_PHRASES[0],
+                "transcription": None,
+                "captured": 0,
+                "phrases": list(ENROLLMENT_PHRASES),
+            }
+        )
 
     def _handle_enroll_record(self, command: dict[str, Any]) -> None:
         """Capture the current phrase on user request."""
@@ -209,15 +211,17 @@ class GuiSession:
             return
 
         if not text:
-            self._emit({
-                "type": "enroll_state",
-                "phase": "no_speech",
-                "index": self._enroll_index,
-                "total": len(ENROLLMENT_PHRASES),
-                "phrase": phrase,
-                "transcription": None,
-                "captured": len(self._enroll_captured),
-            })
+            self._emit(
+                {
+                    "type": "enroll_state",
+                    "phase": "no_speech",
+                    "index": self._enroll_index,
+                    "total": len(ENROLLMENT_PHRASES),
+                    "phrase": phrase,
+                    "transcription": None,
+                    "captured": len(self._enroll_captured),
+                }
+            )
             return
 
         self._enroll_captured.append(text)
@@ -227,19 +231,19 @@ class GuiSession:
         if not done:
             self._enroll_index += 1
 
-        next_phrase = (
-            ENROLLMENT_PHRASES[self._enroll_index] if not done else None
-        )
+        next_phrase = ENROLLMENT_PHRASES[self._enroll_index] if not done else None
         phase = "complete" if done else "captured"
-        self._emit({
-            "type": "enroll_state",
-            "phase": phase,
-            "index": self._enroll_index,
-            "total": len(ENROLLMENT_PHRASES),
-            "phrase": next_phrase,
-            "transcription": text,
-            "captured": len(self._enroll_captured),
-        })
+        self._emit(
+            {
+                "type": "enroll_state",
+                "phase": phase,
+                "index": self._enroll_index,
+                "total": len(ENROLLMENT_PHRASES),
+                "phrase": next_phrase,
+                "transcription": text,
+                "captured": len(self._enroll_captured),
+            }
+        )
 
         if not done:
             return
@@ -254,7 +258,8 @@ class GuiSession:
 
         self._enroll_active = False
         self._emit_response(
-            f"Enrollment saved ({len(self._enroll_captured)}/{len(ENROLLMENT_PHRASES)} phrases). Restart to apply.",
+            f"Enrollment saved ({len(self._enroll_captured)}/{len(ENROLLMENT_PHRASES)} "
+            "phrases). Restart to apply.",
             "en",
         )
 
@@ -264,15 +269,17 @@ class GuiSession:
         self._enroll_active = False
         self._enroll_index = 0
         self._enroll_captured = []
-        self._emit({
-            "type": "enroll_state",
-            "phase": "cancelled",
-            "index": 0,
-            "total": len(ENROLLMENT_PHRASES),
-            "phrase": None,
-            "transcription": None,
-            "captured": 0,
-        })
+        self._emit(
+            {
+                "type": "enroll_state",
+                "phase": "cancelled",
+                "index": 0,
+                "total": len(ENROLLMENT_PHRASES),
+                "phrase": None,
+                "transcription": None,
+                "captured": 0,
+            }
+        )
 
     # ------------------------------------------------------------------
     # Dispatch
@@ -308,11 +315,8 @@ class GuiSession:
             self._running = False
 
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
+            with suppress(ValueError):
                 signal.signal(sig, _stop)
-            except ValueError:
-                # Not in main thread (e.g. under some test runners)
-                pass
 
         self._emit_status("ready")
         logger.info("GUI session started")

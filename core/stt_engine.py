@@ -1,10 +1,9 @@
-"""Voice Assistant — Speech-to-Text Engine."""
+"""Voice Assistant - Speech-to-text engine contract and factory."""
 
 from __future__ import annotations
 
 import logging
-import time
-from pathlib import Path
+import os
 from typing import Any, Protocol
 
 import numpy as np
@@ -15,470 +14,44 @@ from core.exceptions import STTError
 
 logger = logging.getLogger(__name__)
 
-# Type alias for Whisper model
-WhisperModel = Any
-
-# Sentinel distinguishing "no override" from an explicit None in transcribe().
 _UNSET_PROMPT = object()
 
 
 class STTEngineBase(Protocol):
-    """Protocol defining the STT engine interface."""
+    """Protocol shared by the configured speech-to-text engine."""
 
     def record_audio(self, duration: float) -> NDArray[np.float32]: ...
+
     def transcribe(
         self, audio: NDArray[np.float32], initial_prompt: Any = _UNSET_PROMPT
     ) -> tuple[str, str | None]: ...
+
     def test_microphone(self, duration: float = 3.0, gain: float | None = None) -> dict: ...
+
     def set_input_gain(self, gain: float) -> None: ...
+
     def set_auto_gain(self, enabled: bool) -> None: ...
+
     def set_language(self, language: str | None) -> None: ...
+
     def close(self) -> None: ...
 
 
-class STTEngine:
-    """Speech-to-Text engine using faster-whisper."""
-
-    def __init__(
-        self,
-        model_size: str = "large-v3",
-        device: str = "cuda",
-        compute_type: str = "float16",
-        sample_rate: int = 16000,
-        model_dir: str = "models/stt",
-        language: str | None = None,
-        allowed_languages: list[str] | None = None,
-        language_detection_threshold: float = 0.7,
-        vad_filter: bool = True,
-        vad_min_silence_ms: int = 500,
-        initial_prompt: str | None = None,
-        input_gain: float = 1.0,
-        auto_gain: bool = False,
-        offline: bool = False,
-    ) -> None:
-        """Initialize STT engine (lazy model loading).
-
-        Args:
-            model_size: Whisper model size (tiny.en, base.en, small.en, large-v3, etc.)
-            device: Device to run on (cpu, cuda)
-            compute_type: Quantization type (int8, float16, float32)
-            sample_rate: Audio sample rate in Hz
-            model_dir: Local directory for model storage
-            language: Language code (None for auto-detect)
-            allowed_languages: List of allowed language codes (e.g., ["ar", "en"])
-            language_detection_threshold: Minimum probability for language detection
-            vad_filter: Enable VAD filtering
-            vad_min_silence_ms: Minimum silence duration for VAD in milliseconds
-            initial_prompt: Speaker adaptation prompt from voice enrollment
-            input_gain: Input volume gain (0.1-1.0 to prevent clipping)
-            auto_gain: Automatically adjust input gain based on audio levels
-            offline: Never contact the Hugging Face Hub; require a local
-                model snapshot and fail fast when none is available
-        """
-        self._model_size = model_size
-        self._device = device
-        self._compute_type = compute_type
-        self._sample_rate = sample_rate
-        self._model_dir = Path(model_dir)
-        self._language = language
-        self._allowed_languages = allowed_languages
-        self._language_detection_threshold = language_detection_threshold
-        self._vad_filter = vad_filter
-        self._vad_min_silence_ms = vad_min_silence_ms
-        self._initial_prompt = initial_prompt
-        self._input_gain = max(0.01, min(10.0, input_gain))
-        self._auto_gain = auto_gain
-        self._offline = offline
-        # Auto-gain state
-        self._target_rms = 0.15  # Target RMS level
-        self._gain_adjustment_factor = 1.2  # How aggressively to adjust
-        self._min_gain = 0.05
-        self._max_gain = 2.0
-        self._model: WhisperModel | None = None
-
-    def set_input_gain(self, gain: float) -> None:
-        """Update input gain at runtime (clamped to safe bounds).
-
-        Args:
-            gain: New input gain factor
-        """
-        clamped = max(0.01, min(10.0, gain))
-        if clamped != self._input_gain:
-            logger.info(f"Input gain updated: {self._input_gain:.3f} -> {clamped:.3f}")
-        self._input_gain = clamped
-
-    def set_language(self, language: str | None) -> None:
-        """Update transcription language at runtime.
-
-        Args:
-            language: Language code (None for auto-detect)
-        """
-        if language != self._language:
-            logger.info(f"STT language updated: {self._language} -> {language}")
-        self._language = language
-
-    def set_auto_gain(self, enabled: bool) -> None:
-        """Enable or disable automatic gain adjustment at runtime.
-
-        Args:
-            enabled: Whether auto-gain should adjust gain during recordings
-        """
-        if enabled != self._auto_gain:
-            logger.info(f"Auto-gain {'enabled' if enabled else 'disabled'}")
-        self._auto_gain = enabled
-
-    def _get_model_path(self) -> Path:
-        """Get the local model path."""
-        return self._model_dir / self._model_size
-
-    def _resolve_local_snapshot(self) -> Path | None:
-        """Find a fully-downloaded local snapshot of the configured model.
-
-        Checks two layouts under the model directory:
-          1. A plain folder named after the model size containing model.bin
-             (e.g. models/stt/large-v3/).
-          2. A Hugging Face cache directory downloaded via download_root
-             (e.g. models/stt/models--Systran--faster-whisper-medium/
-             snapshots/<revision>/).
-
-        Returns:
-            Path to a directory containing model.bin, or None.
-        """
-        plain = self._model_dir / self._model_size
-        if (plain / "model.bin").is_file():
-            return plain
-
-        repo_dir = self._model_dir / f"models--Systran--faster-whisper-{self._model_size}"
-        snapshots = repo_dir / "snapshots"
-        if snapshots.is_dir():
-            for entry in sorted(snapshots.iterdir()):
-                if entry.is_dir() and (entry / "model.bin").is_file():
-                    return entry
-        return None
-
-    def load_model(self) -> None:
-        """Load the Whisper model (idempotent)."""
-        if self._model is not None:
-            return
-
-        try:
-            # Import here to avoid hard dependency at module load time
-            from faster_whisper import WhisperModel  # type: ignore[import-untyped]
-
-            logger.info(
-                f"Loading STT model: {self._model_size} on {self._device} ({self._compute_type})"
-            )
-            snapshot = self._resolve_local_snapshot()
-            if snapshot is not None:
-                # A resolved local path makes faster-whisper skip all
-                # Hugging Face Hub traffic (revision checks included).
-                logger.info(f"Using local model snapshot: {snapshot}")
-                self._model = WhisperModel(
-                    str(snapshot),
-                    device=self._device,
-                    compute_type=self._compute_type,
-                )
-            elif self._offline:
-                raise STTError(
-                    f"Offline mode enabled but no local snapshot of "
-                    f"'{self._model_size}' found in {self._model_dir}"
-                )
-            else:
-                # Fall back to hub resolution by name; download_root tells
-                # faster-whisper where to cache so later runs resolve locally.
-                self._model = WhisperModel(
-                    self._model_size,
-                    device=self._device,
-                    compute_type=self._compute_type,
-                    download_root=str(self._model_dir),
-                )
-            logger.info("STT model loaded successfully")
-        except STTError:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to load STT model: {e}")
-            raise STTError(f"Failed to load STT model: {e}") from e
-
-    def record_audio(self, duration: float) -> NDArray[np.float32]:
-        """Record audio from microphone.
-
-        Args:
-            duration: Recording duration in seconds
-
-        Returns:
-            Audio data as float32 numpy array (mono, 16kHz)
-
-        Raises:
-            STTError: If recording fails
-        """
-        try:
-            import sounddevice as sd  # type: ignore[import-untyped]
-
-            logger.info(f"Recording audio for {duration}s at {self._sample_rate}Hz")
-            frames = int(duration * self._sample_rate)
-
-            recording = sd.rec(
-                frames=frames,
-                samplerate=self._sample_rate,
-                channels=1,
-                dtype="float32",
-            )
-            sd.wait()
-
-            # Auto-gain adjustment based on RMS level
-            rms = float(np.sqrt(np.mean(recording**2)))
-            if self._auto_gain and rms > 0:
-                # Calculate gain adjustment to reach target RMS
-                ratio = self._target_rms / rms
-                # Limit adjustment factor to prevent wild swings
-                ratio = max(
-                    1.0 / self._gain_adjustment_factor, min(self._gain_adjustment_factor, ratio)
-                )
-                new_gain = self._input_gain * ratio
-                new_gain = max(self._min_gain, min(self._max_gain, new_gain))
-                if abs(new_gain - self._input_gain) > 0.01:
-                    logger.info(
-                        f"Auto-gain: adjusting gain from {self._input_gain:.3f} "
-                        f"to {new_gain:.3f} (RMS={rms:.3f})"
-                    )
-                    self._input_gain = new_gain
-
-            # Apply input gain to prevent clipping
-            if self._input_gain != 1.0:
-                recording = recording * self._input_gain
-                # Clip to prevent overflow
-                recording = np.clip(recording, -1.0, 1.0)
-                clipped_samples = np.sum(np.abs(recording) >= 1.0)
-                if clipped_samples > 0:
-                    logger.warning(
-                        f"Audio clipping detected: {clipped_samples}/{len(recording)} "
-                        f"samples clipped"
-                    )
-
-            # Ensure correct shape (n_samples, 1) for mono
-            if recording.ndim == 1:
-                recording = recording.reshape(-1, 1)
-
-            logger.info(f"Recorded {len(recording)} frames")
-            return np.asarray(recording, dtype=np.float32)  # type: ignore[return-value]
-        except Exception as e:
-            logger.error(f"Failed to record audio: {e}")
-            raise STTError(f"Failed to record audio: {e}") from e
-
-    def test_microphone(
-        self,
-        duration: float = 3.0,
-        gain: float | None = None,
-    ) -> dict:
-        """Test microphone and report audio quality metrics.
-
-        Args:
-            duration: Recording duration in seconds
-            gain: Optional input gain override (uses config default if None)
-
-        Returns:
-            Dictionary with audio quality metrics and transcription
-        """
-        # Temporarily override gain if provided
-        original_gain = self._input_gain
-        if gain is not None:
-            self._input_gain = max(0.01, min(10.0, gain))
-
-        try:
-            logger.info(f"Testing microphone for {duration}s...")
-            audio = self.record_audio(duration)
-
-            # Calculate metrics
-            rms = float(np.sqrt(np.mean(audio**2)))
-            peak = float(np.max(np.abs(audio)))
-            clipped = int(np.sum(np.abs(audio) >= 1.0))
-            total = len(audio)
-            clipping_pct = (clipped / total * 100) if total > 0 else 0.0
-
-            # Transcribe
-            text, lang = self.transcribe(audio)
-
-            # Determine quality assessment
-            if clipping_pct > 5.0:
-                assessment = "❌ High clipping - lower microphone volume"
-                suggested_gain = max(0.05, self._input_gain * 0.5)
-            elif clipping_pct > 1.0:
-                assessment = "⚠️ Some clipping - consider lowering volume"
-                suggested_gain = max(0.05, self._input_gain * 0.7)
-            elif rms < 0.01:
-                assessment = "⚠️ Very low signal - increase microphone volume"
-                suggested_gain = min(2.0, self._input_gain * 2.0)
-            else:
-                assessment = "✅ Audio levels look good!"
-                suggested_gain = self._input_gain
-
-            return {
-                "duration": duration,
-                "rms": rms,
-                "peak": peak,
-                "clipped_samples": clipped,
-                "total_samples": total,
-                "clipping_percentage": clipping_pct,
-                "rms_level": rms,
-                "detected_language": lang,
-                "transcription": text,
-                "assessment": assessment,
-                "suggested_gain": suggested_gain,
-            }
-        except Exception as e:
-            logger.error(f"Microphone test failed: {e}")
-            return {
-                "error": str(e),
-                "duration": duration,
-            }
-        finally:
-            # Restore original gain
-            self._input_gain = original_gain
-
-    def transcribe(
-        self,
-        audio: NDArray[np.float32],
-        initial_prompt: Any = _UNSET_PROMPT,
-    ) -> tuple[str, str | None]:
-        """Transcribe audio to text with language detection.
-
-        Args:
-            audio: Audio data as float32 numpy array (mono, 16kHz)
-            initial_prompt: Optional per-call override of the engine-level
-                speaker adaptation prompt. Omit to use the configured
-                prompt; pass None explicitly to transcribe without one.
-
-        Returns:
-            Tuple of (transcribed_text, detected_language_code)
-
-        Raises:
-            STTError: If transcription fails
-        """
-        if self._model is None:
-            self.load_model()
-
-        if audio.size == 0:
-            logger.warning("Empty audio provided for transcription")
-            return "", None
-
-        try:
-            start_time = time.perf_counter()
-
-            # faster-whisper expects float32 array
-            if audio.dtype != np.float32:
-                audio = audio.astype(np.float32)
-
-            # Flatten if needed (n_samples, 1) -> (n_samples,)
-            if audio.ndim == 2 and audio.shape[1] == 1:
-                audio = audio.flatten()
-
-            # At this point model is guaranteed to be loaded
-            assert self._model is not None
-            prompt = self._initial_prompt if initial_prompt is _UNSET_PROMPT else initial_prompt
-            segments, info = self._model.transcribe(
-                audio,
-                language=self._language,
-                language_detection_threshold=self._language_detection_threshold,
-                vad_filter=self._vad_filter,
-                vad_parameters={"min_silence_duration_ms": self._vad_min_silence_ms},
-                initial_prompt=prompt,
-            )
-
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
-            lang = info.language
-            prob = info.language_probability
-            logger.info(f"STT: {elapsed_ms:.0f}ms | Language: {lang} (p={prob:.2f})")
-
-            # Validate detected language against allowed list
-            if self._allowed_languages and lang not in self._allowed_languages:
-                logger.warning(
-                    f"Detected language '{lang}' not in allowed languages "
-                    f"{self._allowed_languages}. Probability: {prob:.2f}"
-                )
-                # If probability is low, return empty text (no fallback retranscribe)
-                # LLM will handle "couldn't hear" response
-                if prob < self._language_detection_threshold:
-                    logger.info(
-                        f"Language detection confidence too low ({prob:.2f}), returning empty"
-                    )
-                    return "", lang
-
-            # Concatenate all segment texts
-            text = " ".join(segment.text for segment in segments).strip()
-
-            if not text:
-                logger.warning("Transcription returned empty text")
-
-            return text, lang
-        except Exception as e:
-            logger.error(f"Transcription failed: {e}")
-            raise STTError(f"Transcription failed: {e}") from e
-
-    def close(self) -> None:
-        """Close the engine (no-op for local)."""
-        pass
-
-
 def create_stt_engine(config: STTConfig) -> STTEngineBase:
-    """Factory returning STT engine based on provider config.
+    """Create the configured cloud STT engine.
 
-    Args:
-        config: STT configuration with provider setting
-
-    Returns:
-        STT engine instance (Gemini or Local)
-
-    Raises:
-        STTError: If Gemini provider selected but API key not configured
+    Gemini is the only supported provider. Missing credentials and invalid
+    provider values fail explicitly instead of selecting a local backend.
     """
-    if config.provider == STTProvider.GEMINI:
-        # Validate API key
-        api_key = config.gemini_api_key or __import__("os").getenv("GEMINI_API_KEY")
-        if not api_key:
-            logger.warning(
-                "Gemini provider selected but no API key configured. "
-                "Falling back to local STT engine."
-            )
-            return STTEngine(
-                model_size=config.model_size,
-                device=config.device,
-                compute_type=config.compute_type,
-                sample_rate=16000,
-                model_dir=config.model_dir,
-                language=config.language,
-                allowed_languages=config.allowed_languages,
-                language_detection_threshold=config.language_detection_threshold,
-                vad_filter=config.vad_filter,
-                vad_min_silence_ms=config.vad_min_silence_ms,
-                initial_prompt=config.initial_prompt,
-                input_gain=config.input_gain,
-                auto_gain=config.auto_gain,
-                offline=config.offline,
-            )
+    if config.provider != STTProvider.GEMINI:
+        raise STTError(f"Unsupported STT provider: {config.provider}")
 
-        # Import here to avoid hard dependency
-        from core.stt_gemini import GeminiSTTEngine
+    api_key = config.gemini_api_key or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise STTError(
+            "Gemini API key not configured. Set gemini_api_key in config or GEMINI_API_KEY env var."
+        )
 
-        return GeminiSTTEngine(config)
+    from core.stt_gemini import GeminiSTTEngine
 
-    # Default to local
-    return STTEngine(
-        model_size=config.model_size,
-        device=config.device,
-        compute_type=config.compute_type,
-        sample_rate=16000,
-        model_dir=config.model_dir,
-        language=config.language,
-        allowed_languages=config.allowed_languages,
-        language_detection_threshold=config.language_detection_threshold,
-        vad_filter=config.vad_filter,
-        vad_min_silence_ms=config.vad_min_silence_ms,
-        initial_prompt=config.initial_prompt,
-        input_gain=config.input_gain,
-        auto_gain=config.auto_gain,
-        offline=config.offline,
-    )
-
-
-# Backward compatibility alias
-LocalSTTEngine = STTEngine
+    return GeminiSTTEngine(config)

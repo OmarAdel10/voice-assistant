@@ -61,7 +61,6 @@ def _load_dotenv(dotenv_path: Path) -> None:
 class STTProvider(StrEnum):
     """STT provider selection."""
 
-    LOCAL = "local"
     GEMINI = "gemini"
 
 
@@ -70,12 +69,6 @@ class STTConfig(BaseModel):
 
     model_config = {"frozen": True}
 
-    @field_validator("model_dir", mode="before")
-    @classmethod
-    def _anchor_model_dir(cls, v: object) -> object:
-        return _anchor_path(v)
-
-    model_size: str = Field(default="large-v3", description="Whisper model size")
     language: str | None = Field(
         default=None,
         description="Language code (ar for Arabic, en for English, None for auto-detect)",
@@ -87,20 +80,7 @@ class STTConfig(BaseModel):
     language_detection_threshold: float = Field(
         default=0.7, ge=0.0, le=1.0, description="Minimum probability for language detection"
     )
-    device: str = Field(default="cuda", description="Device to run on (cpu, cuda)")
-    compute_type: str = Field(
-        default="float16", description="Quantization type (int8, float16, float32)"
-    )
-    model_dir: str = Field(
-        default=str(PROJECT_ROOT / "models" / "stt"),
-        description="Local model directory",
-    )
-    vad_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="Voice activity detection threshold"
-    )
     max_listen_seconds: int = Field(default=5, gt=0, description="Maximum recording duration")
-    vad_filter: bool = Field(default=True, description="Enable VAD filtering")
-    vad_min_silence_ms: int = Field(default=500, gt=0, description="Min silence duration for VAD")
     initial_prompt: str | None = Field(
         default=None, description="Speaker adaptation prompt from voice enrollment"
     )
@@ -110,15 +90,8 @@ class STTConfig(BaseModel):
     auto_gain: bool = Field(
         default=False, description="Automatically adjust input gain based on audio levels"
     )
-    offline: bool = Field(
-        default=False,
-        description="Require a locally cached whisper snapshot; never contact the Hub",
-    )
-
     # Provider selection
-    provider: STTProvider = Field(
-        default=STTProvider.GEMINI, description="STT provider (local or gemini)"
-    )
+    provider: STTProvider = Field(default=STTProvider.GEMINI, description="STT provider")
 
     # Gemini Cloud STT settings
     gemini_api_key: str | None = Field(

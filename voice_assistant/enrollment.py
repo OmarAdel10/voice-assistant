@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 from config.settings import Settings
-from core.stt_engine import STTEngine
+from core.stt_engine import STTEngineBase, create_stt_engine
 
 logger = logging.getLogger(__name__)
 
@@ -57,20 +57,7 @@ def run_enrollment(settings: Settings) -> None:
     click.echo("Please speak each phrase clearly when prompted.")
     click.echo("Press Enter when ready to record each phrase.\n")
 
-    # Create STT engine for enrollment (without initial_prompt to avoid circular dependency)
-    stt_engine = STTEngine(
-        model_size=settings.stt.model_size,
-        device=settings.stt.device,
-        compute_type=settings.stt.compute_type,
-        sample_rate=settings.audio.sample_rate,
-        model_dir=settings.stt.model_dir,
-        language=None,
-        allowed_languages=settings.stt.allowed_languages,
-        language_detection_threshold=settings.stt.language_detection_threshold,
-        vad_filter=settings.stt.vad_filter,
-        vad_min_silence_ms=settings.stt.vad_min_silence_ms,
-        initial_prompt=None,
-    )
+    stt_engine: STTEngineBase = create_stt_engine(settings.stt)
 
     all_transcriptions = []
 

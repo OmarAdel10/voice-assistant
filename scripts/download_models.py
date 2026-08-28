@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download STT and TTS models to local directory."""
+"""Download TTS models to a local directory."""
 
 from __future__ import annotations
 
@@ -51,31 +51,6 @@ PIPER_VOICES = {
 }
 
 
-def download_whisper_model(model_size: str, target_dir: Path) -> None:
-    """Download faster-whisper model from Hugging Face Hub."""
-    from huggingface_hub import snapshot_download
-
-    repo_id = f"Systran/faster-whisper-{model_size}"
-    local_dir = target_dir / model_size
-
-    if local_dir.exists() and any(local_dir.iterdir()):
-        logger.info(f"Model {model_size} already exists at {local_dir}, skipping")
-        return
-
-    logger.info(f"Downloading {repo_id} to {local_dir}...")
-    try:
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=local_dir,
-            local_dir_use_symlinks=False,
-            resume_download=True,
-        )
-        logger.info(f"Successfully downloaded {model_size}")
-    except Exception as e:
-        logger.error(f"Failed to download {model_size}: {e}")
-        raise
-
-
 def download_piper_voice(voice_name: str, target_dir: Path) -> None:
     """Download piper TTS voice from rhasspy/piper-voices on HuggingFace."""
     if voice_name not in PIPER_VOICES:
@@ -125,12 +100,7 @@ def download_piper_voices_parallel(voice_names: list[str], target_dir: Path) -> 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Download STT and TTS models")
-    parser.add_argument(
-        "--stt-model",
-        default="large-v3",
-        help="Whisper model size to download (default: large-v3)",
-    )
+    parser = argparse.ArgumentParser(description="Download TTS models")
     parser.add_argument(
         "--tts-voices",
         nargs="+",
@@ -150,19 +120,11 @@ def main() -> int:
     args = parser.parse_args()
 
     models_dir = Path(args.models_dir)
-    stt_dir = models_dir / "stt"
     tts_dir = models_dir / "tts"
 
-    stt_dir.mkdir(parents=True, exist_ok=True)
     tts_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Download STT model
-        logger.info("=" * 50)
-        logger.info("Downloading STT model")
-        logger.info("=" * 50)
-        download_whisper_model(args.stt_model, stt_dir)
-
         # Download TTS voices in parallel
         logger.info("=" * 50)
         logger.info("Downloading TTS voices")
@@ -171,7 +133,6 @@ def main() -> int:
 
         logger.info("=" * 50)
         logger.info("All models downloaded successfully!")
-        logger.info(f"STT: {stt_dir}/{args.stt_model}")
         for voice in args.tts_voices:
             voice_info = PIPER_VOICES[voice]
             logger.info(f"TTS: {tts_dir}/{voice_info['folder']}")

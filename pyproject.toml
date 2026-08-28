@@ -9,7 +9,6 @@ description = "Offline-first voice assistant for academic field training"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "faster-whisper>=1.0",
     "sounddevice>=0.4",
     "pyttsx3>=2.90",
     "gTTS>=2.5",

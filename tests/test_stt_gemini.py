@@ -28,15 +28,8 @@ class TestGeminiSTTEngine:
             "language_detection_threshold": 0.7,
             "input_gain": 1.0,
             "auto_gain": False,
-            "model_size": "large-v3",
-            "device": "cuda",
-            "compute_type": "float16",
-            "model_dir": "/tmp/models",
             "language": None,
-            "vad_filter": True,
-            "vad_min_silence_ms": 500,
             "initial_prompt": None,
-            "offline": False,
         }
         defaults.update(overrides)
         return STTConfig(**defaults)
@@ -418,19 +411,12 @@ class TestSTTFactory:
             "provider": provider,
             "gemini_api_key": "test-key" if provider == STTProvider.GEMINI else None,
             "gemini_model": "gemini-3.5-transcribe",
-            "model_size": "large-v3",
-            "device": "cuda",
-            "compute_type": "float16",
-            "model_dir": "/tmp/models",
             "language": None,
             "allowed_languages": ["ar", "en"],
             "language_detection_threshold": 0.7,
-            "vad_filter": True,
-            "vad_min_silence_ms": 500,
             "initial_prompt": None,
             "input_gain": 1.0,
             "auto_gain": False,
-            "offline": False,
             "gemini_base_url": None,
             "gemini_timeout": 30.0,
             "gemini_language": None,
@@ -450,28 +436,16 @@ class TestSTTFactory:
 
         assert isinstance(engine, GeminiSTTEngine)
 
-    def test_factory_returns_local(self):
-        """Factory should return Local engine when provider=local."""
-        from core.stt_engine import create_stt_engine
-
-        config = self._make_settings(STTProvider.LOCAL)
-        engine = create_stt_engine(config)
-
-        from core.stt_engine import STTEngine
-
-        assert isinstance(engine, STTEngine)
-
-    def test_factory_fallback_local_on_error(self):
-        """Factory should fallback to local when Gemini init fails."""
+    def test_factory_requires_gemini_api_key(self):
+        """Factory should fail when Gemini credentials are unavailable."""
         from core.stt_engine import create_stt_engine
 
         config = self._make_settings(STTProvider.GEMINI, gemini_api_key=None)
-        with patch.dict("os.environ", {}, clear=True):
-            engine = create_stt_engine(config)
-
-        from core.stt_engine import STTEngine
-
-        assert isinstance(engine, STTEngine)
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            pytest.raises(STTError, match="Gemini API key not configured"),
+        ):
+            create_stt_engine(config)
 
 
 if __name__ == "__main__":

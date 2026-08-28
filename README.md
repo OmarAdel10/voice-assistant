@@ -1,13 +1,13 @@
 # Voice Assistant
 
-Offline-first voice assistant for academic field training with Egyptian Arabic + English support.
+Cloud-assisted voice assistant for academic field training with Egyptian Arabic + English support.
 
 ## Overview
 
-Voice Assistant is a privacy-focused, offline-first voice assistant designed for academic field training. It runs entirely on your local machine with no cloud dependencies for core functionality (STT, NLP, TTS).
+Voice Assistant is a voice assistant designed for academic field training. Speech recognition uses the Gemini Transcribe API; intent parsing and text-to-speech remain locally configurable.
 
 **Key Features:**
-- **Offline Speech-to-Text**: Uses `faster-whisper` (Whisper Medium, int8 quantization, CUDA)
+- **Cloud Speech-to-Text**: Uses Gemini Transcribe with Egyptian Arabic and English support
 - **LLM-Powered Intent Parsing**: Qwen 2.5 1.5B (GGUF) for semantic understanding of Egyptian Arabic + English code-switching
 - **Fallback NLP**: Regex-based patterns with fuzzy matching for reliability
 - **Offline Text-to-Speech**: Piper (primary, Arabic + English voices) with pyttsx3/gTTS fallback
@@ -158,7 +158,7 @@ Suggested input_gain: 1.0
 
 | Metric | Target | Measured (RTX 3050 Ti 4GB) |
 |--------|--------|-------------------|
-| STT (Medium, int8, CUDA) | <1.5s | ~0.8s for 5s audio |
+| STT (Gemini Transcribe) | <1.5s | Depends on network and API latency |
 | LLM parsing (Qwen 1.5B, int4, CUDA) | <500ms | ~300ms |
 | TTS (Piper) | <500ms | ~300ms |
 | **End-to-end** | **<2.5s** | **~1.5-2.0s** |
@@ -169,14 +169,14 @@ Create `config.yaml` in project root (optional — defaults are sensible):
 
 ```yaml
 stt:
-  model_size: "medium"           # tiny.en, base.en, small, medium, large-v3
-  device: "cuda"                 # cpu, cuda
-  compute_type: "int8"           # int8, float16, float32
+  provider: "gemini"
+  gemini_api_key: ""              # or GEMINI_API_KEY
+  gemini_model: "gemini-3.5-transcribe"
+  gemini_timeout: 30.0
+  gemini_language: null            # BCP-47 language override
   language: null                 # auto-detect (null), "ar", "en"
   allowed_languages: ["ar", "en"] # restrict transcription languages
   language_detection_threshold: 0.7 # stricter detection
-  vad_filter: false
-  vad_min_silence_ms: 300
   max_listen_seconds: 5
   initial_prompt: null           # set by voice enrollment (--enroll)
   input_gain: 0.15               # software gain for hot mics
@@ -218,18 +218,14 @@ log:
 
 Environment variables override config (prefix `VA_`, nested with `__`):
 ```bash
-VA_STT__MODEL_SIZE=large-v3 VA_LLM__ENABLED=false voice-assistant
+VA_STT__GEMINI_MODEL=gemini-3.5-transcribe VA_LLM__ENABLED=false voice-assistant
 ```
 
 ## Model Management
 
-### STT Models
-- Stored in `models/stt/`
-- Auto-downloaded on first run if missing
-- Convert to faster-whisper CT2 format:
-  ```bash
-  ct2-transformers-converter --model openai/whisper-medium --output_dir models/stt/whisper-medium --quantization int8
-  ```
+### Speech Recognition
+- Requires `GEMINI_API_KEY` or `stt.gemini_api_key`.
+- There is no local STT model or offline speech-recognition fallback.
 
 ### LLM Model
 - Place GGUF file at `models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf`
@@ -273,18 +269,18 @@ python -c "from llama_cpp import Llama; Llama(model_path='models/llm/...', n_gpu
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | "No microphone found" | PipeWire/PulseAudio not exposing device | Run `pavucontrol`, check Input Devices tab |
-| "Model load failed" | No internet for first download | Ensure internet, or pre-download models |
+| "Gemini API key not configured" | Credentials are missing | Set `GEMINI_API_KEY` or `stt.gemini_api_key` |
 | "TTS fallback" | Piper missing voices / pyttsx3 missing | Run `scripts/download_models.py`, install `espeak-ng` |
 | "App not found in PATH" | App not installed or not in $PATH | `which <app>` to verify, install if needed |
-| High STT latency | Model too large / CPU only | Use `medium` with `int8` on CUDA (default) |
-| Low STT accuracy | No enrollment / dialect mismatch | Run `voice-assistant --enroll` |
+| High STT latency | Network or API latency | Check connectivity and Gemini timeout settings |
+| Low STT accuracy | Dialect mismatch | Use enrollment to provide speaker context |
 | Clipping in mic test | Mic volume too high | Lower mic in pavucontrol to 30-50% |
 
 ### VRAM Usage (4GB GPU)
 
 | Component | Model | Quantization | VRAM |
 |-----------|-------|--------------|------|
-| STT | Whisper Medium | int8 | ~2.0 GB |
+| STT | Gemini Transcribe | Cloud | 0 GB local |
 | LLM | Qwen 2.5 1.5B | q4_k_m (int4) | ~1.0 GB |
 | **Total** | | | **~3.0 GB** (1GB headroom) |
 
@@ -297,7 +293,7 @@ python -c "from llama_cpp import Llama; Llama(model_path='models/llm/...', n_gpu
 pytest tests/ -v --cov=core --cov-fail-under=50
 
 # Specific test file
-pytest tests/test_stt.py -v
+pytest tests/test_stt_gemini.py -v
 
 # With pre-commit hooks
 pre-commit run --all-files
