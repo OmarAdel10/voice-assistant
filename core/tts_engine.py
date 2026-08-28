@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Literal
@@ -149,47 +146,6 @@ class TTSEngine:
 
         engine.say(text)
         engine.runAndWait()
-
-    def _say_gtts(self, text: str) -> None:
-        """Speak using gTTS (online) - kept for compatibility."""
-        from gtts import gTTS
-
-        lang = self._detect_language(text)
-        tts = gTTS(text=text, lang=lang, slow=False)
-
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fp:
-            tts.write_to_fp(fp)
-            temp_path = fp.name
-
-        try:
-            players = [
-                ["mpv", "--no-video", "--really-quiet"],
-                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],
-                ["aplay"],
-                ["paplay"],
-            ]
-
-            played = False
-            for player_cmd in players:
-                if shutil.which(player_cmd[0]):
-                    try:
-                        subprocess.run(player_cmd + [temp_path], check=True, timeout=30)
-                        played = True
-                        break
-                    except (subprocess.SubprocessError, subprocess.TimeoutExpired):
-                        continue
-
-            if not played:
-                logger.warning("No audio player found for gTTS playback")
-                raise RuntimeError("No audio player available")
-
-        finally:
-            try:
-                import os
-
-                os.unlink(temp_path)
-            except OSError:
-                pass
 
     def _say_fallback(self, text: str) -> None:
         """Last resort: print to stdout."""

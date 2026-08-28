@@ -10,7 +10,7 @@ Voice Assistant is a voice assistant designed for academic field training. Speec
 - **Cloud Speech-to-Text**: Uses Gemini Transcribe with Egyptian Arabic and English support
 - **LLM-Powered Intent Parsing**: Qwen 2.5 1.5B (GGUF) for semantic understanding of Egyptian Arabic + English code-switching
 - **Fallback NLP**: Regex-based patterns with fuzzy matching for reliability
-- **Offline Text-to-Speech**: Piper (primary, Arabic + English voices) with pyttsx3/gTTS fallback
+- **Offline Text-to-Speech**: Piper (primary, Arabic + English voices) with pyttsx3/print fallback
 - **Smart App Launcher**: Fuzzy matching + dnf/flatpak install suggestions with voice confirmation
 - **Languages**: Egyptian Arabic (العربية المصرية) + English with code-switching support
 - **Latency Target**: <2.5s end-to-end (speech end → audio start) — **achieved ~1.5-2.0s**

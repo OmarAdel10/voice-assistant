@@ -22,10 +22,6 @@ Piper primary voice -> Piper fallback voice -> pyttsx3 -> printed text
 
 `_say_pyttsx3` uses the operating system's offline speech system. It applies rate, volume, and an optional voice ID.
 
-## gTTS
-
-`_say_gtts` is kept for compatibility. It uses the online Google TTS service, saves an MP3 temporarily, looks for a player such as `mpv` or `ffplay`, plays it, then deletes the temporary file.
-
 ## Final fallback
 
 `_say_fallback` prints `[TTS fallback]` plus the response so the user still sees an answer.
