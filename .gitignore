@@ -43,6 +43,7 @@ Thumbs.db
 
 docs/*
 !docs/code-guides/
+!docs/reportandpersentation/
 AGENTS.md
 
 # Models (downloaded at runtime)
